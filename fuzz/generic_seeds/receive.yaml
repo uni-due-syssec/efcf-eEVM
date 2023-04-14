@@ -1,0 +1,14 @@
+---
+number: 0
+difficulty: 0
+gas_limit: 0
+timestamp: 0
+initial_ether: 0
+txs:
+  - sender_select: 1
+    call_value: 1000
+    length: 0
+    block_advance: 1
+    return_count: 0
+    input: ""
+    returns: []

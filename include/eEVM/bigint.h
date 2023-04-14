@@ -24,8 +24,7 @@ namespace intx
 
     switch (basefield)
     {
-      case (std::ostream::hex):
-      {
+      case (std::ostream::hex): {
         if (showbase)
         {
           o << "0x";
@@ -34,8 +33,7 @@ namespace intx
         break;
       }
 
-      case (std::ostream::oct):
-      {
+      case (std::ostream::oct): {
         if (showbase)
         {
           o << "0";
@@ -44,8 +42,7 @@ namespace intx
         break;
       }
 
-      default:
-      {
+      default: {
         o << to_string(n, 10);
         break;
       }
@@ -75,3 +72,45 @@ namespace intx
     n = from_string<uint<N>>(s);
   }
 }
+
+namespace eevm {
+  struct Uint256Hasher
+  {
+    std::size_t operator()(uint256_t const& k) const
+    {
+      using std::hash;
+      using std::size_t;
+
+      // https://www.boost.org/doc/libs/1_55_0/doc/html/hash/reference.html#boost.hash_combine
+      size_t seed = 0;
+      seed ^=
+        hash<uint64_t>{}(k.hi.hi) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^=
+        hash<uint64_t>{}(k.hi.lo) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^=
+        hash<uint64_t>{}(k.lo.hi) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^=
+        hash<uint64_t>{}(k.lo.lo) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+
+      return seed;
+    }
+  };
+}
+
+#include <parallel_hashmap/phmap_utils.h> // minimal header providing phmap::HashState()
+
+namespace std
+{
+  // inject specialization of std::hash for into namespace std
+  // ---------------------------------------------------------
+  template <>
+  struct hash<uint256_t>
+  {
+    std::size_t operator()(uint256_t const& u) const
+    {
+      return phmap::HashState().combine(0, u.hi.hi, u.hi.lo, u.lo.hi, u.lo.lo);
+    }
+  };
+}
+
+

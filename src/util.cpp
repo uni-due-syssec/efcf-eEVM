@@ -3,6 +3,8 @@
 
 #include "eEVM/util.h"
 
+#include "eEVM/exception.h"
+#include "eEVM/processor.h"
 #include "eEVM/rlp.h"
 
 #include <iomanip>
@@ -55,5 +57,63 @@ namespace eevm
       buffer);
 
     return from_big_endian(buffer + 12u, 20u);
+  }
+
+  std::ostream& operator<<(std::ostream& out, const eevm::ExecResult& value)
+  {
+    return out << "ExecResult {" << std::endl
+               << "  er: " << value.er << std::endl
+               << "  ex: " << value.ex << std::endl
+               << "  exmsg: " << value.exmsg << std::endl
+               << "  output: " << eevm::to_hex_string(value.output) << std::endl
+               << "  last_pc: " << value.last_pc << std::endl
+               << "}";
+  }
+
+  std::ostream& operator<<(std::ostream& out, const eevm::ExitReason value)
+  {
+    using namespace eevm;
+    const char* s = 0;
+#define PROCESS_VAL(p) \
+  case (p): \
+    s = #p; \
+    break;
+
+    switch (value)
+    {
+      PROCESS_VAL(ExitReason::returned);
+      PROCESS_VAL(ExitReason::halted);
+      PROCESS_VAL(ExitReason::threw);
+    }
+#undef PROCESS_VAL
+
+    return out << s;
+  }
+
+  std::ostream& operator<<(std::ostream& out, const eevm::Exception::Type value)
+  {
+    using namespace eevm;
+    const char* s = 0;
+    // macro definition as a shortcut for switch case
+#define PROCESS_VAL(p) \
+  case (p): \
+    s = #p; \
+    break;
+    // now the actual switch
+    switch (value)
+    {
+      PROCESS_VAL(Exception::Type::none);
+      PROCESS_VAL(Exception::Type::outOfBounds);
+      PROCESS_VAL(Exception::Type::outOfGas);
+      PROCESS_VAL(Exception::Type::outOfFunds);
+      PROCESS_VAL(Exception::Type::overflow);
+      PROCESS_VAL(Exception::Type::illegalInstruction);
+      PROCESS_VAL(Exception::Type::reverted);
+      PROCESS_VAL(Exception::Type::notImplemented);
+      PROCESS_VAL(Exception::Type::staticViolation);
+      PROCESS_VAL(Exception::Type::callStackExhausted);
+    }
+#undef PROCESS_VAL
+    return out << s;
   }
 } // namespace eevm

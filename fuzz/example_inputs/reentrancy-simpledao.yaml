@@ -1,0 +1,42 @@
+---
+number: 0
+difficulty: 0
+gas_limit: 0
+timestamp: 0
+txs:
+  - sender_select: 1
+    call_value: 100000
+    length: 4
+    block_advance: 0
+    return_count: 0
+    input: "0xd0e30db0"
+    returns: []
+  - sender_select: 5
+    call_value: 100000
+    length: 4
+    block_advance: 0
+    return_count: 0
+    input: "0xd0e30db0"
+    returns: []
+  - sender_select: 5
+    call_value: 0
+    length: 36
+    block_advance: 0
+    return_count: 0
+    input: "0x2e1a7d4d000000000000000000000000000000000000000000000000000186a000000000"
+    returns:
+      - value: 1
+        data_length: 0
+        reenter: 1
+        data: ""
+  - sender_select: 5
+    call_value: 0
+    length: 36
+    block_advance: 0
+    return_count: 0
+    input: "0x2e1a7d4d000000000000000000000000000000000000000000000000000186a000000000"
+    returns:
+      - value: 1
+        data_length: 0
+        reenter: 0
+        data: ""

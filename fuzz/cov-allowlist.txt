@@ -1,0 +1,19 @@
+# evm2cpp generated files/functions
+src:*/contracts/*.cpp
+src:*/include/eEVM/evm2cpp/*
+fun:*EVM2CPP*
+
+# needed? implementation of the opcodes
+src:*/include/eEVM/processor-impl.h
+src:*/include/eEVM/processor.h
+src:*/src/processor.cpp
+fun:*ProcessorImplementation*
+
+# fuzzing harnesses
+src:*/fuzz/*/main.cpp
+fun:LLVMFuzzerTestOneInput
+
+# intx for dataflow tracing in integer functions
+src:*/3rdparty/intx/*
+fun:*intx*operator*
+

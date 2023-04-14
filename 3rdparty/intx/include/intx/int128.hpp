@@ -16,6 +16,10 @@
 #include <intrin.h>
 #endif
 
+#ifdef __AFL_COMPILER
+#define DEOPTIMIZE_INTX 1
+#endif
+
 namespace intx
 {
 template <unsigned N>
@@ -149,35 +153,79 @@ constexpr uint128 fast_add(uint128 x, uint128 y) noexcept
 ///
 /// @{
 
+#ifdef DEOPTIMIZE_INTX
+__attribute__((optnone))
+#endif
 constexpr bool operator==(uint128 x, uint128 y) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    if (x.hi == y.hi)
+    {
+        if (x.lo == y.lo)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return false;
+#else
     // Clang7: generates perfect xor based code,
     //         much better than __int128 where it uses vector instructions.
     // GCC8: generates a bit worse cmp based code
     //       although it generates the xor based one for __int128.
     return (x.lo == y.lo) & (x.hi == y.hi);
+#endif
 }
 
+#ifdef DEOPTIMIZE_INTX
+__attribute__((optnone))
+#endif
 constexpr bool operator!=(uint128 x, uint128 y) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    if (x.hi != y.hi)
+    {
+        if (x.lo != y.lo)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return false;
+#else
     // Analogous to ==, but == not used directly, because that confuses GCC8.
     return (x.lo != y.lo) | (x.hi != y.hi);
+#endif
 }
 
 constexpr bool operator<(uint128 x, uint128 y) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    return (x.hi < y.hi) || ((x.hi == y.hi) && (x.lo < y.lo));
+#else
     // OPT: This should be implemented by checking the borrow of x - y,
     //      but compilers (GCC8, Clang7)
     //      have problem with properly optimizing subtraction.
     return (x.hi < y.hi) | ((x.hi == y.hi) & (x.lo < y.lo));
+#endif
 }
 
 constexpr bool operator<=(uint128 x, uint128 y) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    return (x.hi < y.hi) || ((x.hi == y.hi) && (x.lo <= y.lo));
+#else
     // OPT: This also should be implemented by subtraction + flag check.
     // TODO: Clang7 is not able to fully optimize
     //       the naive implementation as (x < y) | (x == y).
     return (x.hi < y.hi) | ((x.hi == y.hi) & (x.lo <= y.lo));
+#endif
 }
 
 constexpr bool operator>(uint128 x, uint128 y) noexcept

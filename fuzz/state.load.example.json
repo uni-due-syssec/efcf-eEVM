@@ -1,0 +1,23 @@
+{
+  "accounts": [
+    [
+      "0xdeadc5d48cec7275152b3026b53f6f78d03d",
+      [
+        {
+          "address": "0xdeadc5d48cec7275152b3026b53f6f78d03d",
+          "balance": "0x1337",
+          "code": "0x0100",
+          "nonce": "0x0"
+        },
+        {}
+      ]
+    ]
+  ],
+  "block": {
+    "currentCoinbase": "0x0",
+    "currentDifficulty": "0x0",
+    "currentGasLimit": "0x0",
+    "currentNumber": "0x0",
+    "currentTimestamp": "0x0"
+  }
+}

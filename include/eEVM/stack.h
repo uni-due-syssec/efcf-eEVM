@@ -28,6 +28,9 @@ namespace eevm
     uint64_t size() const;
     void swap(uint64_t i);
     void dup(uint64_t a);
+    uint256_t peek(const uint64_t i);
+    void pop_drop_n(const uint64_t n);
+    void set(const uint64_t n, uint256_t val);
 
     friend std::ostream& operator<<(std::ostream& os, const Stack& s);
   };

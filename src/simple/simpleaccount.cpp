@@ -2,11 +2,23 @@
 // Licensed under the MIT License.
 
 #include "eEVM/simple/simpleaccount.h"
+#include "eEVM/processor-impl.h"
 
 #include "eEVM/util.h"
 
 namespace eevm
 {
+
+  void* SimpleAccount::get_specialized_processor() const
+  {
+    return this->specialized_processor;
+  }
+
+  void SimpleAccount::set_specialized_processor(void* t_specialized_processor)
+  {
+    specialized_processor = t_specialized_processor;
+  }
+
   Address SimpleAccount::get_address() const
   {
     return address;
@@ -42,14 +54,19 @@ namespace eevm
     ++nonce;
   }
 
-  Code SimpleAccount::get_code() const
+  Code& SimpleAccount::get_code() const
+  {
+    return *code;
+  }
+
+  std::shared_ptr<Code> SimpleAccount::get_code_ref()
   {
     return code;
   }
 
   void SimpleAccount::set_code(Code&& c)
   {
-    code = c;
+    code = std::make_shared<Code>(c);
   }
 
   bool SimpleAccount::has_code()
@@ -69,7 +86,7 @@ namespace eevm
     j["address"] = address_to_hex_string(a.address);
     j["balance"] = to_hex_string(a.balance);
     j["nonce"] = to_hex_string(a.nonce);
-    j["code"] = to_hex_string(a.code);
+    j["code"] = to_hex_string(*a.code);
   }
 
   void from_json(const nlohmann::json& j, SimpleAccount& a)
@@ -91,7 +108,7 @@ namespace eevm
 
     if (j.find("code") != j.end())
     {
-      a.code = to_bytes(j["code"]);
+      a.code = std::make_shared<Code>(to_bytes(j["code"]));
     }
   }
 } // namespace eevm

@@ -14,11 +14,15 @@ namespace eevm
   public:
     enum class Type
     {
+      none,
       outOfBounds,
       outOfGas,
       outOfFunds,
       overflow,
+      staticViolation,
       illegalInstruction,
+      reverted,
+      callStackExhausted,
       notImplemented
     };
     const Type type;
@@ -50,4 +54,6 @@ namespace eevm
       return msg;
     }
   };
+
+  std::ostream& operator<<(std::ostream& out, const Exception::Type value);
 } // namespace eevm

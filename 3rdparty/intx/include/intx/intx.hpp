@@ -13,6 +13,10 @@
 #include <limits>
 #include <type_traits>
 
+#ifdef __AFL_COMPILER
+#define DEOPTIMIZE_INTX 1
+#endif
+
 namespace intx
 {
 template <unsigned N>
@@ -47,7 +51,7 @@ struct uint
 
     constexpr explicit operator bool() const noexcept
     {
-        return static_cast<bool>(lo) | static_cast<bool>(hi);
+        return static_cast<bool>(lo) || static_cast<bool>(hi);
     }
 
     /// Explicit converting operator for all builtin integral types.
@@ -166,11 +170,283 @@ constexpr unsigned num_bits(const T&) noexcept
     return sizeof(T) * 8;
 }
 
+#ifdef DEOPTIMIZE_INTX
+template <unsigned N>
+__attribute__((optnone)) constexpr bool operator==(const uint<N>& a, const uint<N>& b) noexcept
+{
+    return (a.lo == b.lo) && (a.hi == b.hi);
+}
+
+//#ifdef __SIZEOF_INT128__
+//__attribute__((optnone)) constexpr bool operator==(const uint256& a, const uint256& b) noexcept
+//{
+// /* afl++ cmplog natively supports hooking int128 so this was an attempt at
+//    utilizing this, but it seems it doesn't work so well... */
+//    unsigned __int128 ahi = (unsigned __int128){a.hi.hi} << 64 | (unsigned __int128){a.hi.lo};
+//    unsigned __int128 alo = (unsigned __int128){a.lo.hi} << 64 | (unsigned __int128){a.lo.lo};
+//    unsigned __int128 bhi = (unsigned __int128){b.hi.hi} << 64 | (unsigned __int128){b.hi.lo};
+//    unsigned __int128 blo = (unsigned __int128){b.lo.hi} << 64 | (unsigned __int128){b.lo.lo};
+//    if (ahi == bhi)
+//    {
+//        if (alo == blo)
+//        {
+//            return true;
+//        }
+//        else
+//        {
+//            return false;
+//        }
+//    }
+//    return false;
+//}
+//#else
+__attribute__((optnone)) constexpr bool operator==(const uint256& a, const uint256& b) noexcept
+{
+    // NOTE: the ordering of the checks seem to be important to AFL++ **for some
+    // inexpliccable reason**. I suspect it has something to do with the way AFL
+    // analyzes hitcounts in branches. This function is probably called quite
+    // often so probably AFL++ does not immediately identify a new branch even
+    // though all 4 checks are solved.
+
+    if ((a.lo.lo == 0 && b.lo.lo == 0) || a.lo.lo == b.lo.lo)
+    {
+        if ((a.lo.hi == 0 && b.lo.hi == 0) || a.lo.hi == b.lo.hi)
+        {
+            if ((a.hi.lo == 0 && b.hi.lo == 0) || a.hi.lo == b.hi.lo)
+            {
+                if ((a.hi.hi == 0 && b.hi.hi == 0) || a.hi.hi == b.hi.hi)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return false;
+}
+
+
+__attribute__((optnone)) constexpr bool operator!=(const uint256& a, const uint256& b) noexcept
+{
+    if (a.lo.lo != b.lo.lo)
+    {
+        return true;
+    }
+    if (a.lo.hi != b.lo.hi)
+    {
+        return true;
+    }
+    if (a.hi.lo != b.hi.lo)
+    {
+        return true;
+    }
+    if (a.hi.hi != b.hi.hi)
+    {
+        return true;
+    }
+    return false;
+}
+
+
+__attribute__((optnone)) constexpr bool operator<(const uint256& a, const uint256& b) noexcept
+{
+    if (a.hi.hi < b.hi.hi)
+    {
+        return true;
+    }
+
+    if (a.hi.hi == b.hi.hi)
+    {
+        if (a.hi.lo < b.hi.lo)
+        {
+            return true;
+        }
+        else if (a.hi.lo == b.hi.lo)
+        {
+            if (a.lo.hi < b.lo.hi)
+            {
+                return true;
+            }
+            else if (a.lo.hi == b.lo.hi)
+            {
+                if (a.lo.lo < b.lo.lo)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+__attribute__((optnone)) constexpr bool operator<=(const uint256& a, const uint256& b) noexcept
+{
+    if (a.hi.hi < b.hi.hi)
+    {
+        return true;
+    }
+
+    if (a.hi.hi == b.hi.hi)
+    {
+        if (a.hi.lo < b.hi.lo)
+        {
+            return true;
+        }
+        else if (a.hi.lo == b.hi.lo)
+        {
+            if (a.lo.hi < b.lo.hi)
+            {
+                return true;
+            }
+            else if (a.lo.hi == b.lo.hi)
+            {
+                if (a.lo.lo < b.lo.lo)
+                {
+                    return true;
+                }
+                else if (a.lo.lo == b.lo.lo)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+__attribute__((optnone)) constexpr bool operator>(const uint256& a, const uint256& b) noexcept
+{
+    if (a.hi.hi > b.hi.hi)
+    {
+        return true;
+    }
+
+    if (a.hi.hi == b.hi.hi)
+    {
+        if (a.hi.lo > b.hi.lo)
+        {
+            return true;
+        }
+        else if (a.hi.lo == b.hi.lo)
+        {
+            if (a.lo.hi > b.lo.hi)
+            {
+                return true;
+            }
+            else if (a.lo.hi == b.lo.hi)
+            {
+                if (a.lo.lo > b.lo.lo)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+__attribute__((optnone)) constexpr bool operator>=(const uint256& a, const uint256& b) noexcept
+{
+    if (a.hi.hi > b.hi.hi)
+    {
+        return true;
+    }
+
+    if (a.hi.hi == b.hi.hi)
+    {
+        if (a.hi.lo > b.hi.lo)
+        {
+            return true;
+        }
+        else if (a.hi.lo == b.hi.lo)
+        {
+            if (a.lo.hi > b.lo.hi)
+            {
+                return true;
+            }
+            else if (a.lo.hi == b.lo.hi)
+            {
+                if (a.lo.lo > b.lo.lo)
+                {
+                    return true;
+                }
+                else if (a.lo.lo == b.lo.lo)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+//#endif
+
+#else
+
+
 template <unsigned N>
 constexpr bool operator==(const uint<N>& a, const uint<N>& b) noexcept
 {
     return (a.lo == b.lo) & (a.hi == b.hi);
 }
+
+#endif
 
 template <unsigned N, typename T,
     typename = typename std::enable_if<std::is_convertible<T, uint<N>>::value>::type>
@@ -211,10 +487,14 @@ constexpr bool operator!=(const T& x, const uint<N>& y) noexcept
 template <unsigned N>
 constexpr bool operator<(const uint<N>& a, const uint<N>& b) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    return (a.hi < b.hi) || ((a.hi == b.hi) && (a.lo < b.lo));
+#else
     // Bitwise operators are used to implement logic here to avoid branching.
     // It also should make the function smaller, but no proper benchmark has
     // been done.
     return (a.hi < b.hi) | ((a.hi == b.hi) & (a.lo < b.lo));
+#endif
 }
 
 template <unsigned N, typename T,
@@ -235,10 +515,14 @@ constexpr bool operator<(const T& x, const uint<N>& y) noexcept
 template <unsigned N>
 constexpr bool operator>(const uint<N>& a, const uint<N>& b) noexcept
 {
+#ifdef DEOPTIMIZE_INTX
+    return (a.hi > b.hi) || ((a.hi == b.hi) && (a.lo > b.lo));
+#else
     // Bitwise operators are used to implement logic here to avoid branching.
     // It also should make the function smaller, but no proper benchmark has
     // been done.
     return (a.hi > b.hi) | ((a.hi == b.hi) & (a.lo > b.lo));
+#endif
 }
 
 template <unsigned N, typename T,
@@ -678,7 +962,7 @@ template <unsigned N>
 constexpr uint<N> exp(uint<N> base, uint<N> exponent) noexcept
 {
     auto result = uint<N>{1};
-    while (exponent != 0)
+    while (exponent != 0 && result != 0)
     {
         if ((exponent & 1) != 0)
             result *= base;

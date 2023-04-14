@@ -3,6 +3,7 @@
 
 #pragma once
 #include "address.h"
+#include "bigint.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>
@@ -38,6 +39,7 @@ namespace eevm
 
   struct NullLogHandler : public LogHandler
   {
+    NullLogHandler() = default;
     virtual void handle(LogEntry&&) override {}
   };
 
@@ -57,25 +59,48 @@ namespace eevm
    */
   struct Transaction
   {
-    const Address origin;
-    const uint64_t value;
-    const uint64_t gas_price;
-    const uint64_t gas_limit;
+    Address origin;
+    uint256_t value;
+    uint256_t gas_price;
+    uint256_t gas_limit;
 
     LogHandler& log_handler;
-    std::vector<Address> selfdestruct_list;
+    std::vector<std::pair<Address, Address>> selfdestruct_list;
+
+    Transaction() :
+      origin{(intx::uint<256>)0},
+      value{(intx::uint<256>)0},
+      gas_price{(intx::uint<256>)0},
+      gas_limit{(intx::uint<256>)0},
+      log_handler{*(new NullLogHandler{})},
+      selfdestruct_list{std::vector<std::pair<Address, Address>>{}}
+    {}
 
     Transaction(
       const Address origin,
       LogHandler& lh,
-      uint64_t value = 0,
-      uint64_t gas_price = 0,
-      uint64_t gas_limit = 0) :
+      uint256_t value = 0,
+      uint256_t gas_price = 0,
+      uint256_t gas_limit = 0) :
       origin(origin),
       value(value),
       gas_price(gas_price),
       gas_limit(gas_limit),
       log_handler(lh)
     {}
+
+    Transaction& operator=(const Transaction& other)
+    {
+      this->origin = other.origin;
+      this->value = other.value;
+      this->gas_price = other.gas_price;
+      this->gas_limit = other.gas_limit;
+      this->log_handler = other.log_handler;
+      //this->selfdestruct_list = other.selfdestruct_list;
+
+      return *this;
+    }
   };
+
+  using TransactionInput = std::vector<uint8_t>;
 } // namespace eevm

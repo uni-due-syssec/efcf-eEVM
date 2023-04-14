@@ -1,0 +1,66 @@
+stages:
+  - build
+  - fuzz
+
+variables:
+  GIT_SUBMODULE_STRATEGY: normal
+
+.quick_build: &quick_build
+  image: git.uni-due.de:6666/uni-due-syssec/projects/smart-contract-fuzzing/experiments:ubuntu-master
+  stage: build
+  script:
+    - echo "$TARGET"
+    - bash ./quick-build.sh $TARGET $CONTRACT
+  variables:
+    CONTRACT: ""
+    TARGET: ""
+    GIT_SUBMODULE_STRATEGY: normal
+
+.launch_afl: &launch_afl
+  stage: fuzz
+  image: git.uni-due.de:6666/uni-due-syssec/projects/smart-contract-fuzzing/experiments:ubuntu-master
+  script:
+    - "# Testing short fuzzing run"
+    - echo "Fuzzing contract $CONTRACT for $FUZZING_TIME sec"
+    - bash ./fuzz/launch-aflfuzz.sh $CONTRACT
+    - test -n "$(ls -A ./fuzz/out/${CONTRACT}*/default/crashes/)"
+    - "cd ./fuzz/out/${CONTRACT}* && afl-whatsup -d ."
+  allow_failure: true
+  variables:
+    CONTRACT: ""
+    FUZZING_TIME: "90"
+    AFL_BENCH_UNTIL_CRASH: "1"
+    AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES: "1"
+    FUZZ_LAUNCHER_DONT_REBUILD: "1"
+    FUZZ_PRINT_ENV_CONFIG: "1"
+    FUZZ_USE_SHM: "1"
+    GIT_SUBMODULE_STRATEGY: normal
+  artifacts:
+    paths:
+      - ./fuzz/out/
+    expire_in: 3 days
+
+test-build:
+  extends: .quick_build
+  parallel:
+    matrix:
+      - CONTRACT: ["nop", "crowdsale", "harvey_baz", "Bank"]
+        TARGET: ["debug", "afuzz", "libfuzzer"]
+  allow_failure: true
+
+test-afl-fuzz-crowdsale:
+  extends: .launch_afl
+  variables:
+    CONTRACT: "crowdsale"
+
+test-afl-fuzz-properties:
+  extends: .launch_afl
+  variables:
+    CONTRACT: "harvey_baz"
+    EVM_PROPERTY_PATH: "./fuzz/properties/harvey_baz.signatures"
+
+test-afl-fuzz-state:
+  extends: .launch_afl
+  variables:
+    CONTRACT: "Bank"
+    EVM_LOAD_STATE: "./fuzz/state.load.bank.json"

@@ -91,9 +91,9 @@ void run_test_case(
 #endif
 
       Block b = j["env"];
-      SimpleGlobalState gs(b);
+      auto gs = std::make_shared<SimpleGlobalState>(b);
       NullLogHandler ignore;
-      Transaction tx(
+      auto tx = std::make_shared<Transaction>(
         to_uint256(j["exec"]["origin"]),
         ignore,
         to_uint64(j["exec"]["value"]),
@@ -103,10 +103,10 @@ void run_test_case(
       // parse accounts
       for (decltype(auto) it = j["pre"].cbegin(); it != j["pre"].cend(); it++)
       {
-        gs.insert(parseAccount(it));
+        gs->insert(parseAccount(it));
       }
 
-      CHECK(gs.exists(callee));
+      CHECK(gs->exists(callee));
 
       Processor p(gs);
       Trace* tr(nullptr);
@@ -115,7 +115,7 @@ void run_test_case(
       tr = new Trace();
 #endif
 
-      const auto e = p.run(tx, caller, gs.get(callee), inp, value, tr);
+      const auto e = p.run(tx, caller, gs->get(callee), inp, value, tr);
 
 #ifdef RECORD_TRACE
       cout << fmt::format("Trace:\n{}{}", *tr, delim) << endl;
@@ -134,7 +134,7 @@ void run_test_case(
       for (auto it = post.value().cbegin(); it != post.value().cend(); it++)
       {
         const auto expected = parseAccount(it);
-        const auto actual = gs.get(expected.first.get_address());
+        const auto actual = gs->get(expected.first.get_address());
         CHECK(expected.first == actual.acc);
 
         decltype(auto) st = dynamic_cast<SimpleStorage&>(actual.st);
@@ -146,7 +146,7 @@ void run_test_case(
       // systemState is lost
       if (postAccounts != 0)
       {
-        CHECK(postAccounts == gs.num_accounts());
+        CHECK(postAccounts == gs->num_accounts());
       }
 
       // does the test case specify output?

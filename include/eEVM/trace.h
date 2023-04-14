@@ -5,6 +5,7 @@
 #include "disassembler.h"
 #include "opcode.h"
 #include "stack.h"
+#include "address.h"
 
 #include <fmt/format_header_only.h>
 #include <iostream>
@@ -19,16 +20,19 @@ namespace eevm
     const uint64_t pc;
     const Opcode op;
     const uint16_t call_depth;
+    const Address address;
     std::unique_ptr<Stack> s;
 
     TraceEvent(
       const uint64_t pc,
       const Opcode op,
       const uint16_t call_depth,
+      const Address address,
       const Stack s) :
       pc(pc),
       op(op),
       call_depth(call_depth),
+      address(address),
       s(std::make_unique<Stack>(s))
     {}
 
@@ -36,6 +40,7 @@ namespace eevm
       pc(other.pc),
       op(other.op),
       call_depth(other.call_depth),
+      address(other.address),
       s(std::move(other.s))
     {}
   };

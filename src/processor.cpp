@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) Michael Rodler. All rights reserved.
 // Licensed under the MIT License.
 
 #include "eEVM/processor.h"
@@ -6,6 +7,7 @@
 #include "eEVM/bigint.h"
 #include "eEVM/exception.h"
 #include "eEVM/opcode.h"
+#include "eEVM/processor-impl.h"
 #include "eEVM/stack.h"
 #include "eEVM/util.h"
 
@@ -19,1339 +21,1186 @@
 #include <type_traits>
 #include <utility>
 
+#define PRECOMPILES_LAST_ADDR 18
+
+#ifdef ENABLE_FUZZING
+#  include "eEVM/fuzz/addresses.hpp"
+#  include "fuzz_init.hpp"
+#endif
+
 using namespace std;
 
 namespace eevm
 {
-  struct Consts
+  void ProcessorImplementation::dispatch()
   {
-    static constexpr auto MAX_CALL_DEPTH = 1024u;
-    static constexpr auto WORD_SIZE = 32u;
-    static constexpr auto MAX_MEM_SIZE = 1ull << 25; // 32 MB
-  };
+    const auto op = get_op();
+    if (tr) [[unlikely]] // TODO: remove if from critical path
+      tr->add(
+        ctxt->get_pc(), op, get_call_depth(), ctxt->acc.get_address(), ctxt->s);
 
-  inline int get_sign(const uint256_t& v)
-  {
-    return (v >> 255) ? -1 : 1;
+    switch (op)
+    {
+      case Opcode::PUSH1:
+      case Opcode::PUSH2:
+      case Opcode::PUSH3:
+      case Opcode::PUSH4:
+      case Opcode::PUSH5:
+      case Opcode::PUSH6:
+      case Opcode::PUSH7:
+      case Opcode::PUSH8:
+      case Opcode::PUSH9:
+      case Opcode::PUSH10:
+      case Opcode::PUSH11:
+      case Opcode::PUSH12:
+      case Opcode::PUSH13:
+      case Opcode::PUSH14:
+      case Opcode::PUSH15:
+      case Opcode::PUSH16:
+      case Opcode::PUSH17:
+      case Opcode::PUSH18:
+      case Opcode::PUSH19:
+      case Opcode::PUSH20:
+      case Opcode::PUSH21:
+      case Opcode::PUSH22:
+      case Opcode::PUSH23:
+      case Opcode::PUSH24:
+      case Opcode::PUSH25:
+      case Opcode::PUSH26:
+      case Opcode::PUSH27:
+      case Opcode::PUSH28:
+      case Opcode::PUSH29:
+      case Opcode::PUSH30:
+      case Opcode::PUSH31:
+      case Opcode::PUSH32:
+        push();
+        break;
+      case Opcode::POP:
+        pop();
+        break;
+      case Opcode::SWAP1:
+      case Opcode::SWAP2:
+      case Opcode::SWAP3:
+      case Opcode::SWAP4:
+      case Opcode::SWAP5:
+      case Opcode::SWAP6:
+      case Opcode::SWAP7:
+      case Opcode::SWAP8:
+      case Opcode::SWAP9:
+      case Opcode::SWAP10:
+      case Opcode::SWAP11:
+      case Opcode::SWAP12:
+      case Opcode::SWAP13:
+      case Opcode::SWAP14:
+      case Opcode::SWAP15:
+      case Opcode::SWAP16:
+        swap();
+        break;
+      case Opcode::DUP1:
+      case Opcode::DUP2:
+      case Opcode::DUP3:
+      case Opcode::DUP4:
+      case Opcode::DUP5:
+      case Opcode::DUP6:
+      case Opcode::DUP7:
+      case Opcode::DUP8:
+      case Opcode::DUP9:
+      case Opcode::DUP10:
+      case Opcode::DUP11:
+      case Opcode::DUP12:
+      case Opcode::DUP13:
+      case Opcode::DUP14:
+      case Opcode::DUP15:
+      case Opcode::DUP16:
+        dup();
+        break;
+      case Opcode::LOG0:
+      case Opcode::LOG1:
+      case Opcode::LOG2:
+      case Opcode::LOG3:
+      case Opcode::LOG4:
+        log();
+        break;
+      case Opcode::ADD:
+        add();
+        break;
+      case Opcode::MUL:
+        mul();
+        break;
+      case Opcode::SUB:
+        sub();
+        break;
+      case Opcode::DIV:
+        div();
+        break;
+      case Opcode::SDIV:
+        sdiv();
+        break;
+      case Opcode::MOD:
+        mod();
+        break;
+      case Opcode::SMOD:
+        smod();
+        break;
+      case Opcode::ADDMOD:
+        addmod();
+        break;
+      case Opcode::MULMOD:
+        mulmod();
+        break;
+      case Opcode::EXP:
+        exp();
+        break;
+      case Opcode::SIGNEXTEND:
+        signextend();
+        break;
+      case Opcode::LT:
+        lt();
+        break;
+      case Opcode::GT:
+        gt();
+        break;
+      case Opcode::SLT:
+        slt();
+        break;
+      case Opcode::SGT:
+        sgt();
+        break;
+      case Opcode::EQ:
+        eq();
+        break;
+      case Opcode::ISZERO:
+        isZero();
+        break;
+      case Opcode::AND:
+        and_();
+        break;
+      case Opcode::OR:
+        or_();
+        break;
+      case Opcode::XOR:
+        xor_();
+        break;
+      case Opcode::NOT:
+        not_();
+        break;
+      case Opcode::BYTE:
+        byte();
+        break;
+      case Opcode::JUMP:
+        jump();
+        break;
+      case Opcode::JUMPI:
+        jumpi();
+        break;
+      case Opcode::PC:
+        pc();
+        break;
+      case Opcode::MSIZE:
+        msize();
+        break;
+      case Opcode::MLOAD:
+        mload();
+        break;
+      case Opcode::MSTORE:
+        mstore();
+        break;
+      case Opcode::MSTORE8:
+        mstore8();
+        break;
+      case Opcode::CODESIZE:
+        codesize();
+        break;
+      case Opcode::CODECOPY:
+        codecopy();
+        break;
+      case Opcode::EXTCODESIZE:
+        extcodesize();
+        break;
+      case Opcode::EXTCODECOPY:
+        extcodecopy();
+        break;
+      case Opcode::SLOAD:
+        sload();
+        break;
+      case Opcode::SSTORE:
+        sstore();
+        break;
+      case Opcode::ADDRESS:
+        address();
+        break;
+      case Opcode::BALANCE:
+        balance();
+        break;
+      case Opcode::SELFBALANCE:
+        selfbalance();
+        break;
+      case Opcode::ORIGIN:
+        origin();
+        break;
+      case Opcode::CALLER:
+        caller();
+        break;
+      case Opcode::CALLVALUE:
+        callvalue();
+        break;
+      case Opcode::CALLDATALOAD:
+        calldataload();
+        break;
+      case Opcode::CALLDATASIZE:
+        calldatasize();
+        break;
+      case Opcode::CALLDATACOPY:
+        calldatacopy();
+        break;
+      case Opcode::RETURN:
+        return_();
+        break;
+      case Opcode::REVERT:
+        revert();
+        break;
+      case Opcode::SELFDESTRUCT:
+        selfdestruct();
+        break;
+      case Opcode::CREATE:
+        create();
+        break;
+      case Opcode::STATICCALL:
+      case Opcode::CALL:
+      case Opcode::CALLCODE:
+      case Opcode::DELEGATECALL:
+        call();
+        break;
+      case Opcode::JUMPDEST:
+        jumpdest();
+        break;
+      case Opcode::BLOCKHASH:
+        blockhash();
+        break;
+      case Opcode::NUMBER:
+        number();
+        break;
+      case Opcode::GASPRICE:
+        gasprice();
+        break;
+      case Opcode::COINBASE:
+        coinbase();
+        break;
+      case Opcode::TIMESTAMP:
+        timestamp();
+        break;
+      case Opcode::DIFFICULTY:
+        difficulty();
+        break;
+      case Opcode::GASLIMIT:
+        gaslimit();
+        break;
+      case Opcode::CHAINID:
+        chainid();
+        break;
+      case Opcode::GAS:
+        gas();
+        break;
+      case Opcode::SHA3:
+        sha3();
+        break;
+      case Opcode::STOP:
+        stop();
+        break;
+      case Opcode::RETURNDATASIZE:
+        returndatasize();
+        break;
+      case Opcode::RETURNDATACOPY:
+        returndatacopy();
+        break;
+      case Opcode::SHR:
+        shr();
+        break;
+      case Opcode::SHL:
+        shl();
+        break;
+      case Opcode::SAR:
+        sar();
+        break;
+      default:
+        stringstream err;
+        err << fmt::format(
+                 "Unknown/unsupported Opcode: 0x{:02x}", int{get_op()})
+            << endl;
+        err << fmt::format(
+                 " in contract {}",
+                 to_checksum_address(ctxt->as.acc.get_address()))
+            << endl;
+        err << fmt::format(" called by {}", to_checksum_address(ctxt->caller))
+            << endl;
+        err << fmt::format(
+                 " at position {}, call-depth {}",
+                 ctxt->get_pc(),
+                 get_call_depth())
+            << endl;
+        throw Exception(Exception::Type::illegalInstruction, err.str());
+    };
   }
 
-  /**
-   * bytecode program
-   */
-  class Program
+  Processor::Processor(std::shared_ptr<eevm::SimpleGlobalState> t_gs)
   {
-  public:
-    const vector<uint8_t> code;
-    const set<uint64_t> jump_dests;
+    gs = t_gs;
+  }
 
-    Program(vector<uint8_t>&& c) : code(c), jump_dests(compute_jump_dests(code))
-    {}
-
-  private:
-    set<uint64_t> compute_jump_dests(const vector<uint8_t>& code)
-    {
-      set<uint64_t> dests;
-      for (uint64_t i = 0; i < code.size(); i++)
-      {
-        const auto op = code[i];
-        if (op >= PUSH1 && op <= PUSH32)
-        {
-          const uint8_t immediate_bytes = op - static_cast<uint8_t>(PUSH1) + 1;
-          i += immediate_bytes;
-        }
-        else if (op == JUMPDEST)
-          dests.insert(i);
-      }
-      return dests;
-    }
-  };
-
-  /**
-   * execution context of a call
-   */
-  class Context
+  ExecResult Processor::runSpecializedDyn(
+    std::shared_ptr<Transaction> tx,
+    const Address& caller,
+    AccountState callee,
+    const std::vector<uint8_t>& input,
+    const uint256_t& call_value,
+    Trace* tr,
+    fuzz::FuzzCaseParser* fp)
   {
-  private:
-    uint64_t pc = 0;
-    bool pc_changed = true;
-
-    using PcType = decltype(pc);
-
-  public:
-    using ReturnHandler = function<void(vector<uint8_t>)>;
-    using HaltHandler = function<void()>;
-    using ExceptionHandler = function<void(const Exception&)>;
-
-    vector<uint8_t> mem;
-    Stack s;
-
-    AccountState as;
-    Account& acc;
-    Storage& st;
-    const Address caller;
-    const vector<uint8_t> input;
-    const uint256_t call_value;
-    const Program prog;
-    ReturnHandler rh;
-    HaltHandler hh;
-    ExceptionHandler eh;
-
-    Context(
-      const Address& caller,
-      AccountState as,
-      vector<uint8_t>&& input,
-      const uint256_t& call_value,
-      Program&& prog,
-      ReturnHandler&& rh,
-      HaltHandler&& hh,
-      ExceptionHandler&& eh) :
-      as(as),
-      acc(as.acc),
-      st(as.st),
-      caller(caller),
-      input(input),
-      call_value(call_value),
-      prog(prog),
-      rh(rh),
-      hh(hh),
-      eh(eh)
-    {}
-
-    /// increment the pc if it wasn't changed before
-    void step()
+    SpecializedProcessor* spptr = static_cast<SpecializedProcessor*>(
+      callee.acc.get_specialized_processor());
+    if (spptr == nullptr)
     {
-      if (pc_changed)
-        pc_changed = false;
-      else
-        pc++;
-    }
-
-    PcType get_pc() const
-    {
-      return pc;
-    }
-
-    void set_pc(const PcType pc_)
-    {
-      pc = pc_;
-      pc_changed = true;
-    }
-
-    bool pc_valid() const
-    {
-      return pc < prog.code.size();
-    }
-
-    auto get_used_mem() const
-    {
-      return (mem.size() + Consts::WORD_SIZE - 1) / Consts::WORD_SIZE;
-    }
-  };
-
-  /**
-   * implementation of the VM
-   */
-  class _Processor
-  {
-  private:
-    /// the interface to the global state
-    GlobalState& gs;
-    /// the transaction object
-    Transaction& tx;
-    /// pointer to trace object (for debugging)
-    Trace* const tr;
-    /// the stack of contexts (one per nested call)
-    vector<unique_ptr<Context>> ctxts;
-    /// pointer to the current context
-    Context* ctxt;
-
-    using ET = Exception::Type;
-
-  public:
-    _Processor(GlobalState& gs, Transaction& tx, Trace* tr) :
-      gs(gs),
-      tx(tx),
-      tr(tr)
-    {}
-
-    ExecResult run(
-      const Address& caller,
-      AccountState callee,
-      vector<uint8_t> input, // Take a copy here, then move it into context
-      const uint256_t& call_value)
-    {
-      // create the first context
       ExecResult result;
-      auto rh = [&result](vector<uint8_t> output_) {
-        result.er = ExitReason::returned;
-        result.output = move(output_);
-      };
-      auto hh = [&result]() { result.er = ExitReason::halted; };
-      auto eh = [&result](const Exception& ex_) {
-        result.er = ExitReason::threw;
-        result.ex = ex_.type;
-        result.exmsg = ex_.what();
-      };
-
-      push_context(
-        caller,
-        callee,
-        move(input),
-        callee.acc.get_code(),
-        call_value,
-        rh,
-        hh,
-        eh);
-
-      // run
-      while (ctxt->get_pc() < ctxt->prog.code.size())
+      result.last_pc = 0;
+      result.output = {};
+      if (callee.acc.has_code())
       {
-        try
-        {
-          dispatch();
-        }
-        catch (Exception& ex)
-        {
-          ctxt->eh(ex);
-          pop_context();
-        }
-
-        if (!ctxt)
-          break;
-        ctxt->step();
+        result.ex = Exception::Type::notImplemented;
+        result.er = eevm::ExitReason::threw;
       }
-
-      // halt outer context if it did not do so itself
-      if (ctxt)
-        stop();
-
-      // clean-up
-      for (const auto& addr : tx.selfdestruct_list)
-        gs.remove(addr);
-
+      else
+      {
+        result.er = eevm::ExitReason::halted;
+      }
       return result;
     }
-
-  private:
-    void push_context(
-      const Address& caller,
-      AccountState as,
-      vector<uint8_t>&& input,
-      Program&& prog,
-      const uint256_t& call_value,
-      Context::ReturnHandler&& rh,
-      Context::HaltHandler&& hh,
-      Context::ExceptionHandler&& eh)
-    {
-      if (get_call_depth() >= Consts::MAX_CALL_DEPTH)
-        throw Exception(
-          ET::outOfBounds,
-          "Reached max call depth (" + to_string(Consts::MAX_CALL_DEPTH) + ")");
-
-      auto c = make_unique<Context>(
-        caller,
-        as,
-        move(input),
-        call_value,
-        move(prog),
-        move(rh),
-        move(hh),
-        move(eh));
-      ctxts.emplace_back(move(c));
-      ctxt = ctxts.back().get();
-    }
-
-    uint16_t get_call_depth() const
-    {
-      return static_cast<uint16_t>(ctxts.size());
-    }
-
-    Opcode get_op() const
-    {
-      return static_cast<Opcode>(ctxt->prog.code[ctxt->get_pc()]);
-    }
-
-    uint256_t pop_addr(Stack& st)
-    {
-      static const uint256_t MASK_160 = (uint256_t(1) << 160) - 1;
-      return st.pop() & MASK_160;
-    }
-
-    void pop_context()
-    {
-      ctxts.pop_back();
-      if (!ctxts.empty())
-        ctxt = ctxts.back().get();
-      else
-        ctxt = nullptr;
-    }
-
-    static void copy_mem_raw(
-      const uint64_t offDst,
-      const uint64_t offSrc,
-      const uint64_t size,
-      vector<uint8_t>& dst,
-      const vector<uint8_t>& src,
-      const uint8_t pad = 0)
-    {
-      if (!size)
-        return;
-
-      const auto lastDst = offDst + size;
-      if (lastDst < offDst)
-        throw Exception(
-          ET::outOfBounds,
-          "Integer overflow in copy_mem (" + to_string(lastDst) + " < " +
-            to_string(offDst) + ")");
-
-      if (lastDst > Consts::MAX_MEM_SIZE)
-        throw Exception(
-          ET::outOfBounds,
-          "Memory limit exceeded (" + to_string(lastDst) + " > " +
-            to_string(Consts::MAX_MEM_SIZE) + ")");
-
-      if (lastDst > dst.size())
-        dst.resize(lastDst);
-
-      const auto lastSrc = offSrc + size;
-      const auto endSrc =
-        min(lastSrc, static_cast<decltype(lastSrc)>(src.size()));
-      uint64_t remaining;
-      if (endSrc > offSrc)
-      {
-        copy(src.begin() + offSrc, src.begin() + endSrc, dst.begin() + offDst);
-        remaining = lastSrc - endSrc;
-      }
-      else
-      {
-        remaining = size;
-      }
-
-      // if there are more bytes to copy than available, add padding
-      fill(dst.begin() + lastDst - remaining, dst.begin() + lastDst, pad);
-    }
-
-    void copy_mem(
-      vector<uint8_t>& dst, const vector<uint8_t>& src, const uint8_t pad)
-    {
-      const auto offDst = ctxt->s.pop64();
-      const auto offSrc = ctxt->s.pop64();
-      const auto size = ctxt->s.pop64();
-
-      copy_mem_raw(offDst, offSrc, size, dst, src, pad);
-    }
-
-    void prepare_mem_access(const uint64_t offset, const uint64_t size)
-    {
-      const auto end = offset + size;
-      if (end < offset)
-        throw Exception(
-          ET::outOfBounds,
-          "Integer overflow in memory access (" + to_string(end) + " < " +
-            to_string(offset) + ")");
-
-      if (end > Consts::MAX_MEM_SIZE)
-        throw Exception(
-          ET::outOfBounds,
-          "Memory limit exceeded (" + to_string(end) + " > " +
-            to_string(Consts::MAX_MEM_SIZE) + ")");
-
-      if (end > ctxt->mem.size())
-        ctxt->mem.resize(end);
-    }
-
-    vector<uint8_t> copy_from_mem(const uint64_t offset, const uint64_t size)
-    {
-      prepare_mem_access(offset, size);
-      return {ctxt->mem.begin() + offset, ctxt->mem.begin() + offset + size};
-    }
-
-    void jump_to(const uint64_t newPc)
-    {
-      if (ctxt->prog.jump_dests.find(newPc) == ctxt->prog.jump_dests.end())
-        throw Exception(
-          ET::illegalInstruction,
-          to_string(newPc) + " is not a jump destination");
-      ctxt->set_pc(newPc);
-    }
-
-    template <
-      typename X,
-      typename Y,
-      typename = enable_if_t<is_unsigned<X>::value && is_unsigned<Y>::value>>
-    static auto safeAdd(const X x, const Y y)
-    {
-      const auto r = x + y;
-      if (r < x)
-        throw overflow_error("integer overflow");
-      return r;
-    }
-
-    template <typename T>
-    static T shrink(uint256_t i)
-    {
-      return static_cast<T>(i & numeric_limits<T>::max());
-    }
-
-    void dispatch()
-    {
-      const auto op = get_op();
-      if (tr) // TODO: remove if from critical path
-        tr->add(ctxt->get_pc(), op, get_call_depth(), ctxt->s);
-
-      switch (op)
-      {
-        case Opcode::PUSH1:
-        case Opcode::PUSH2:
-        case Opcode::PUSH3:
-        case Opcode::PUSH4:
-        case Opcode::PUSH5:
-        case Opcode::PUSH6:
-        case Opcode::PUSH7:
-        case Opcode::PUSH8:
-        case Opcode::PUSH9:
-        case Opcode::PUSH10:
-        case Opcode::PUSH11:
-        case Opcode::PUSH12:
-        case Opcode::PUSH13:
-        case Opcode::PUSH14:
-        case Opcode::PUSH15:
-        case Opcode::PUSH16:
-        case Opcode::PUSH17:
-        case Opcode::PUSH18:
-        case Opcode::PUSH19:
-        case Opcode::PUSH20:
-        case Opcode::PUSH21:
-        case Opcode::PUSH22:
-        case Opcode::PUSH23:
-        case Opcode::PUSH24:
-        case Opcode::PUSH25:
-        case Opcode::PUSH26:
-        case Opcode::PUSH27:
-        case Opcode::PUSH28:
-        case Opcode::PUSH29:
-        case Opcode::PUSH30:
-        case Opcode::PUSH31:
-        case Opcode::PUSH32:
-          push();
-          break;
-        case Opcode::POP:
-          pop();
-          break;
-        case Opcode::SWAP1:
-        case Opcode::SWAP2:
-        case Opcode::SWAP3:
-        case Opcode::SWAP4:
-        case Opcode::SWAP5:
-        case Opcode::SWAP6:
-        case Opcode::SWAP7:
-        case Opcode::SWAP8:
-        case Opcode::SWAP9:
-        case Opcode::SWAP10:
-        case Opcode::SWAP11:
-        case Opcode::SWAP12:
-        case Opcode::SWAP13:
-        case Opcode::SWAP14:
-        case Opcode::SWAP15:
-        case Opcode::SWAP16:
-          swap();
-          break;
-        case Opcode::DUP1:
-        case Opcode::DUP2:
-        case Opcode::DUP3:
-        case Opcode::DUP4:
-        case Opcode::DUP5:
-        case Opcode::DUP6:
-        case Opcode::DUP7:
-        case Opcode::DUP8:
-        case Opcode::DUP9:
-        case Opcode::DUP10:
-        case Opcode::DUP11:
-        case Opcode::DUP12:
-        case Opcode::DUP13:
-        case Opcode::DUP14:
-        case Opcode::DUP15:
-        case Opcode::DUP16:
-          dup();
-          break;
-        case Opcode::LOG0:
-        case Opcode::LOG1:
-        case Opcode::LOG2:
-        case Opcode::LOG3:
-        case Opcode::LOG4:
-          log();
-          break;
-        case Opcode::ADD:
-          add();
-          break;
-        case Opcode::MUL:
-          mul();
-          break;
-        case Opcode::SUB:
-          sub();
-          break;
-        case Opcode::DIV:
-          div();
-          break;
-        case Opcode::SDIV:
-          sdiv();
-          break;
-        case Opcode::MOD:
-          mod();
-          break;
-        case Opcode::SMOD:
-          smod();
-          break;
-        case Opcode::ADDMOD:
-          addmod();
-          break;
-        case Opcode::MULMOD:
-          mulmod();
-          break;
-        case Opcode::EXP:
-          exp();
-          break;
-        case Opcode::SIGNEXTEND:
-          signextend();
-          break;
-        case Opcode::LT:
-          lt();
-          break;
-        case Opcode::GT:
-          gt();
-          break;
-        case Opcode::SLT:
-          slt();
-          break;
-        case Opcode::SGT:
-          sgt();
-          break;
-        case Opcode::EQ:
-          eq();
-          break;
-        case Opcode::ISZERO:
-          isZero();
-          break;
-        case Opcode::AND:
-          and_();
-          break;
-        case Opcode::OR:
-          or_();
-          break;
-        case Opcode::XOR:
-          xor_();
-          break;
-        case Opcode::NOT:
-          not_();
-          break;
-        case Opcode::BYTE:
-          byte();
-          break;
-        case Opcode::JUMP:
-          jump();
-          break;
-        case Opcode::JUMPI:
-          jumpi();
-          break;
-        case Opcode::PC:
-          pc();
-          break;
-        case Opcode::MSIZE:
-          msize();
-          break;
-        case Opcode::MLOAD:
-          mload();
-          break;
-        case Opcode::MSTORE:
-          mstore();
-          break;
-        case Opcode::MSTORE8:
-          mstore8();
-          break;
-        case Opcode::CODESIZE:
-          codesize();
-          break;
-        case Opcode::CODECOPY:
-          codecopy();
-          break;
-        case Opcode::EXTCODESIZE:
-          extcodesize();
-          break;
-        case Opcode::EXTCODECOPY:
-          extcodecopy();
-          break;
-        case Opcode::SLOAD:
-          sload();
-          break;
-        case Opcode::SSTORE:
-          sstore();
-          break;
-        case Opcode::ADDRESS:
-          address();
-          break;
-        case Opcode::BALANCE:
-          balance();
-          break;
-        case Opcode::ORIGIN:
-          origin();
-          break;
-        case Opcode::CALLER:
-          caller();
-          break;
-        case Opcode::CALLVALUE:
-          callvalue();
-          break;
-        case Opcode::CALLDATALOAD:
-          calldataload();
-          break;
-        case Opcode::CALLDATASIZE:
-          calldatasize();
-          break;
-        case Opcode::CALLDATACOPY:
-          calldatacopy();
-          break;
-        case Opcode::RETURN:
-          return_();
-          break;
-        case Opcode::SELFDESTRUCT:
-          selfdestruct();
-          break;
-        case Opcode::CREATE:
-          create();
-          break;
-        case Opcode::CALL:
-        case Opcode::CALLCODE:
-        case Opcode::DELEGATECALL:
-          call();
-          break;
-        case Opcode::JUMPDEST:
-          jumpdest();
-          break;
-        case Opcode::BLOCKHASH:
-          blockhash();
-          break;
-        case Opcode::NUMBER:
-          number();
-          break;
-        case Opcode::GASPRICE:
-          gasprice();
-          break;
-        case Opcode::COINBASE:
-          coinbase();
-          break;
-        case Opcode::TIMESTAMP:
-          timestamp();
-          break;
-        case Opcode::DIFFICULTY:
-          difficulty();
-          break;
-        case Opcode::GASLIMIT:
-          gaslimit();
-          break;
-        case Opcode::GAS:
-          gas();
-          break;
-        case Opcode::SHA3:
-          sha3();
-          break;
-        case Opcode::STOP:
-          stop();
-          break;
-        default:
-          stringstream err;
-          err << fmt::format(
-                   "Unknown/unsupported Opcode: 0x{:02x}", int{get_op()})
-              << endl;
-          err << fmt::format(
-                   " in contract {}",
-                   to_checksum_address(ctxt->as.acc.get_address()))
-              << endl;
-          err << fmt::format(" called by {}", to_checksum_address(ctxt->caller))
-              << endl;
-          err << fmt::format(
-                   " at position {}, call-depth {}",
-                   ctxt->get_pc(),
-                   get_call_depth())
-              << endl;
-          throw Exception(Exception::Type::illegalInstruction, err.str());
-      };
-    }
-
-    //
-    // op codes
-    //
-    void swap()
-    {
-      ctxt->s.swap(get_op() - SWAP1 + 1);
-    }
-
-    void dup()
-    {
-      ctxt->s.dup(get_op() - DUP1);
-    }
-
-    void add()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x + y);
-    }
-
-    void sub()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x - y);
-    }
-
-    void mul()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x * y);
-    }
-
-    void div()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      if (!y)
-      {
-        ctxt->s.push(0);
-      }
-      else
-      {
-        ctxt->s.push(x / y);
-      }
-    }
-
-    void sdiv()
-    {
-      auto x = ctxt->s.pop();
-      auto y = ctxt->s.pop();
-      const auto min = (numeric_limits<uint256_t>::max() / 2) + 1;
-
-      if (y == 0)
-        ctxt->s.push(0);
-      // special "overflow case" from the yellow paper
-      else if (x == min && y == -1)
-        ctxt->s.push(x);
-      else
-      {
-        const auto signX = get_sign(x);
-        const auto signY = get_sign(y);
-        if (signX == -1)
-          x = 0 - x;
-        if (signY == -1)
-          y = 0 - y;
-
-        auto z = (x / y);
-        if (signX != signY)
-          z = 0 - z;
-        ctxt->s.push(z);
-      }
-    }
-
-    void mod()
-    {
-      const auto x = ctxt->s.pop();
-      const auto m = ctxt->s.pop();
-      if (!m)
-        ctxt->s.push(0);
-      else
-        ctxt->s.push(x % m);
-    }
-
-    void smod()
-    {
-      auto x = ctxt->s.pop();
-      auto m = ctxt->s.pop();
-      if (m == 0)
-        ctxt->s.push(0);
-      else
-      {
-        const auto signX = get_sign(x);
-        const auto signM = get_sign(m);
-        if (signX == -1)
-          x = 0 - x;
-        if (signM == -1)
-          m = 0 - m;
-
-        auto z = (x % m);
-        if (signX == -1)
-          z = 0 - z;
-        ctxt->s.push(z);
-      }
-    }
-
-    void addmod()
-    {
-      const uint512_t x = ctxt->s.pop();
-      const uint512_t y = ctxt->s.pop();
-      const auto m = ctxt->s.pop();
-      if (!m)
-      {
-        ctxt->s.push(0);
-      }
-      else
-      {
-        const uint512_t n = (x + y) % m;
-        ctxt->s.push(n.lo);
-      }
-    }
-
-    void mulmod()
-    {
-      const uint512_t x = ctxt->s.pop();
-      const uint512_t y = ctxt->s.pop();
-      const auto m = ctxt->s.pop();
-      if (!m)
-      {
-        ctxt->s.push(m);
-      }
-      else
-      {
-        const uint512_t n = (x * y) % m;
-        ctxt->s.push(n.lo);
-      }
-    }
-
-    void exp()
-    {
-      const auto b = ctxt->s.pop();
-      const auto e = ctxt->s.pop64();
-      ctxt->s.push(intx::exp(b, uint256_t(e)));
-    }
-
-    void signextend()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      if (x >= 32)
-      {
-        ctxt->s.push(y);
-        return;
-      }
-      const auto idx = 8 * shrink<uint8_t>(x) + 7;
-      const auto sign = static_cast<uint8_t>((y >> idx) & 1);
-      constexpr auto zero = uint256_t(0);
-      const auto mask = ~zero >> (256 - idx);
-      const auto yex = ((sign ? ~zero : zero) << idx) | (y & mask);
-      ctxt->s.push(yex);
-    }
-
-    void lt()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push((x < y) ? 1 : 0);
-    }
-
-    void gt()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push((x > y) ? 1 : 0);
-    }
-
-    void slt()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      if (x == y)
-      {
-        ctxt->s.push(0);
-        return;
-      }
-
-      const auto signX = get_sign(x);
-      const auto signY = get_sign(y);
-      if (signX != signY)
-      {
-        if (signX == -1)
-          ctxt->s.push(1);
-        else
-          ctxt->s.push(0);
-      }
-      else
-      {
-        ctxt->s.push((x < y) ? 1 : 0);
-      }
-    }
-
-    void sgt()
-    {
-      ctxt->s.swap(1);
-      slt();
-    }
-
-    void eq()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      if (x == y)
-        ctxt->s.push(1);
-      else
-        ctxt->s.push(0);
-    }
-
-    void isZero()
-    {
-      const auto x = ctxt->s.pop();
-      if (x == 0)
-        ctxt->s.push(1);
-      else
-        ctxt->s.push(0);
-    }
-
-    void and_()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x & y);
-    }
-
-    void or_()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x | y);
-    }
-
-    void xor_()
-    {
-      const auto x = ctxt->s.pop();
-      const auto y = ctxt->s.pop();
-      ctxt->s.push(x ^ y);
-    }
-
-    void not_()
-    {
-      const auto x = ctxt->s.pop();
-      ctxt->s.push(~x);
-    }
-
-    void byte()
-    {
-      const auto idx = ctxt->s.pop();
-      if (idx >= 32)
-      {
-        ctxt->s.push(0);
-        return;
-      }
-      const auto shift = 256 - 8 - 8 * shrink<uint8_t>(idx);
-      const auto mask = uint256_t(255) << shift;
-      const auto val = ctxt->s.pop();
-      ctxt->s.push((val & mask) >> shift);
-    }
-
-    void jump()
-    {
-      const auto newPc = ctxt->s.pop64();
-      jump_to(newPc);
-    }
-
-    void jumpi()
-    {
-      const auto newPc = ctxt->s.pop64();
-      const auto cond = ctxt->s.pop();
-      if (cond)
-        jump_to(newPc);
-    }
-
-    void jumpdest() {}
-
-    void pc()
-    {
-      ctxt->s.push(ctxt->get_pc());
-    }
-
-    void msize()
-    {
-      ctxt->s.push(ctxt->get_used_mem() * 32);
-    }
-
-    void mload()
-    {
-      const auto offset = ctxt->s.pop64();
-      prepare_mem_access(offset, Consts::WORD_SIZE);
-      const auto start = ctxt->mem.data() + offset;
-      ctxt->s.push(from_big_endian(start, Consts::WORD_SIZE));
-    }
-
-    void mstore()
-    {
-      const auto offset = ctxt->s.pop64();
-      const auto word = ctxt->s.pop();
-      prepare_mem_access(offset, Consts::WORD_SIZE);
-      to_big_endian(word, ctxt->mem.data() + offset);
-    }
-
-    void mstore8()
-    {
-      const auto offset = ctxt->s.pop64();
-      const auto b = shrink<uint8_t>(ctxt->s.pop());
-      prepare_mem_access(offset, sizeof(b));
-      ctxt->mem[offset] = b;
-    }
-
-    void sload()
-    {
-      const auto k = ctxt->s.pop();
-      ctxt->s.push(ctxt->st.load(k));
-    }
-
-    void sstore()
-    {
-      const auto k = ctxt->s.pop();
-      const auto v = ctxt->s.pop();
-      if (!v)
-        ctxt->st.remove(k);
-      else
-        ctxt->st.store(k, v);
-    }
-
-    void codecopy()
-    {
-      copy_mem(ctxt->mem, ctxt->prog.code, Opcode::STOP);
-    }
-
-    void extcodesize()
-    {
-      ctxt->s.push(gs.get(pop_addr(ctxt->s)).acc.get_code().size());
-    }
-
-    void extcodecopy()
-    {
-      copy_mem(
-        ctxt->mem, gs.get(pop_addr(ctxt->s)).acc.get_code(), Opcode::STOP);
-    }
-
-    void codesize()
-    {
-      ctxt->s.push(ctxt->acc.get_code().size());
-    }
-
-    void calldataload()
-    {
-      const auto offset = ctxt->s.pop64();
-      safeAdd(offset, Consts::WORD_SIZE);
-      const auto sizeInput = ctxt->input.size();
-
-      uint256_t v = 0;
-      for (uint8_t i = 0; i < Consts::WORD_SIZE; i++)
-      {
-        const auto j = offset + i;
-        if (j < sizeInput)
-        {
-          v = (v << 8) + ctxt->input[j];
-        }
-        else
-        {
-          v <<= 8 * (Consts::WORD_SIZE - i);
-          break;
-        }
-      }
-      ctxt->s.push(v);
-    }
-
-    void calldatasize()
-    {
-      ctxt->s.push(ctxt->input.size());
-    }
-
-    void calldatacopy()
-    {
-      copy_mem(ctxt->mem, ctxt->input, 0);
-    }
-
-    void address()
-    {
-      ctxt->s.push(ctxt->acc.get_address());
-    }
-
-    void balance()
-    {
-      decltype(auto) acc = gs.get(pop_addr(ctxt->s)).acc;
-      ctxt->s.push(acc.get_balance());
-    }
-
-    void origin()
-    {
-      ctxt->s.push(tx.origin);
-    }
-
-    void caller()
-    {
-      ctxt->s.push(ctxt->caller);
-    }
-
-    void callvalue()
-    {
-      ctxt->s.push(ctxt->call_value);
-    }
-
-    void push()
-    {
-      const uint8_t bytes = get_op() - PUSH1 + 1;
-      const auto end = ctxt->get_pc() + bytes;
-      if (end < ctxt->get_pc())
-        throw Exception(
-          ET::outOfBounds,
-          "Integer overflow in push (" + to_string(end) + " < " +
-            to_string(ctxt->get_pc()) + ")");
-
-      if (end >= ctxt->prog.code.size())
-        throw Exception(
-          ET::outOfBounds,
-          "Push immediate exceeds size of program (" + to_string(end) +
-            " >= " + to_string(ctxt->prog.code.size()) + ")");
-
-      // TODO: parse immediate once and not every time
-      auto pc = ctxt->get_pc() + 1;
-      uint256_t imm = 0;
-      for (int i = 0; i < bytes; i++)
-        imm = (imm << 8) | ctxt->prog.code[pc++];
-
-      ctxt->s.push(imm);
-      ctxt->set_pc(pc);
-    }
-
-    void pop()
-    {
-      ctxt->s.pop();
-    }
-
-    void log()
-    {
-      const uint8_t n = get_op() - LOG0;
-      const auto offset = ctxt->s.pop64();
-      const auto size = ctxt->s.pop64();
-
-      vector<uint256_t> topics(n);
-      for (int i = 0; i < n; i++)
-        topics[i] = ctxt->s.pop();
-
-      tx.log_handler.handle(
-        {ctxt->acc.get_address(), copy_from_mem(offset, size), topics});
-    }
-
-    void blockhash()
-    {
-      const auto i = ctxt->s.pop64();
-      if (i >= 256)
-        ctxt->s.push(0);
-      else
-        ctxt->s.push(gs.get_block_hash(i % 256));
-    }
-
-    void number()
-    {
-      ctxt->s.push(gs.get_current_block().number);
-    }
-
-    void gasprice()
-    {
-      ctxt->s.push(tx.gas_price);
-    }
-
-    void coinbase()
-    {
-      ctxt->s.push(gs.get_current_block().coinbase);
-    }
-
-    void timestamp()
-    {
-      ctxt->s.push(gs.get_current_block().timestamp);
-    }
-
-    void difficulty()
-    {
-      ctxt->s.push(gs.get_current_block().difficulty);
-    }
-
-    void gas()
-    {
-      // NB: we do not currently track gas. This will always return the tx's
-      // initial gas value
-      ctxt->s.push(tx.gas_limit);
-    }
-
-    void gaslimit()
-    {
-      ctxt->s.push(gs.get_current_block().gas_limit);
-    }
-
-    void sha3()
-    {
-      const auto offset = ctxt->s.pop64();
-      const auto size = ctxt->s.pop64();
-      prepare_mem_access(offset, size);
-
-      uint8_t h[32];
-      keccak_256(ctxt->mem.data() + offset, static_cast<unsigned int>(size), h);
-      ctxt->s.push(from_big_endian(h, sizeof(h)));
-    }
-
-    void return_()
-    {
-      const auto offset = ctxt->s.pop64();
-      const auto size = ctxt->s.pop64();
-
-      // invoke caller's return handler
-      ctxt->rh(copy_from_mem(offset, size));
-      pop_context();
-    }
-
-    void stop()
-    {
-      // (1) save halt handler
-      auto hh = ctxt->hh;
-      // (2) pop current context
-      pop_context();
-      // (3) invoke halt handler
-      hh();
-    }
-
-    void selfdestruct()
-    {
-      auto recipient = gs.get(pop_addr(ctxt->s));
-      ctxt->acc.pay_to(recipient.acc, ctxt->acc.get_balance());
-      tx.selfdestruct_list.push_back(ctxt->acc.get_address());
-      stop();
-    }
-
-    void create()
-    {
-      const auto contractValue = ctxt->s.pop();
-      const auto offset = ctxt->s.pop64();
-      const auto size = ctxt->s.pop64();
-      auto initCode = copy_from_mem(offset, size);
-
-      const auto newAddress =
-        generate_address(ctxt->acc.get_address(), ctxt->acc.get_nonce());
-
-      // For contract accounts, the nonce counts the number of
-      // contract-creations by this account
-      // TODO: Work out why this fails the test cases
-      // ctxt->acc.increment_nonce();
-
-      decltype(auto) newAcc = gs.create(newAddress, contractValue, {});
-
-      // In contract creation, the transaction value is an endowment for the
-      // newly created account
-      ctxt->acc.pay_to(newAcc.acc, contractValue);
-
-      auto parentContext = ctxt;
-      auto rh = [&newAcc, parentContext](vector<uint8_t> output) {
-        newAcc.acc.set_code(move(output));
-        parentContext->s.push(newAcc.acc.get_address());
-      };
-      auto hh = [parentContext]() { parentContext->s.push(0); };
-      auto eh = [parentContext](const Exception&) { parentContext->s.push(0); };
-
-      // create new context for init code execution
-      push_context(
-        ctxt->acc.get_address(),
-        newAcc,
-        {},
-        std::move(initCode),
-        0,
-        rh,
-        hh,
-        eh);
-    }
-
-    void call()
-    {
-      const auto op = get_op();
-      ctxt->s.pop(); // gas limit not used
-      const auto addr = pop_addr(ctxt->s);
-      const auto value = op == DELEGATECALL ? 0 : ctxt->s.pop64();
-      const auto offIn = ctxt->s.pop64();
-      const auto sizeIn = ctxt->s.pop64();
-      const auto offOut = ctxt->s.pop64();
-      const auto sizeOut = ctxt->s.pop64();
-
-      if (addr >= 1 && addr <= 8)
-      {
-        // TODO: implement native extensions
-        throw Exception(
-          ET::notImplemented,
-          "Precompiled contracts/native extensions are not implemented.");
-      }
-
-      decltype(auto) callee = gs.get(addr);
-      ctxt->acc.pay_to(callee.acc, value);
-      if (!callee.acc.has_code())
-      {
-        ctxt->s.push(1);
-        return;
-      }
-
-      prepare_mem_access(offOut, sizeOut);
-      auto input = copy_from_mem(offIn, sizeIn);
-
-      auto parentContext = ctxt;
-      auto rh =
-        [offOut, sizeOut, parentContext](const vector<uint8_t>& output) {
-          copy_mem_raw(offOut, 0, sizeOut, parentContext->mem, output);
-          parentContext->s.push(1);
-        };
-      auto hh = [parentContext]() { parentContext->s.push(1); };
-      auto he = [parentContext](const Exception&) { parentContext->s.push(0); };
-
-      switch (op)
-      {
-        case Opcode::CALL:
-          push_context(
-            ctxt->acc.get_address(),
-            callee,
-            move(input),
-            callee.acc.get_code(),
-            value,
-            rh,
-            hh,
-            he);
-          break;
-        case Opcode::CALLCODE:
-          push_context(
-            ctxt->acc.get_address(),
-            ctxt->as,
-            move(input),
-            callee.acc.get_code(),
-            value,
-            rh,
-            hh,
-            he);
-          break;
-        case Opcode::DELEGATECALL:
-          push_context(
-            ctxt->caller,
-            ctxt->as,
-            move(input),
-            callee.acc.get_code(),
-            ctxt->call_value,
-            rh,
-            hh,
-            he);
-          break;
-        default:
-          throw UnexpectedState("Unknown call opcode.");
-      }
-    }
-  };
-
-  Processor::Processor(GlobalState& gs) : gs(gs) {}
+    auto p = spptr->duplicate();
+    p->prepare(gs, tx, tr);
+    p->setFuzzCaseParser(fp);
+    return p->run(caller, callee, input, call_value);
+  }
 
   ExecResult Processor::run(
-    Transaction& tx,
+    std::shared_ptr<Transaction> tx,
     const Address& caller,
     AccountState callee,
     const vector<uint8_t>& input,
     const uint256_t& call_value,
     Trace* tr)
   {
-    return _Processor(gs, tx, tr).run(caller, callee, input, call_value);
+    return ProcessorImplementation(gs, tx, tr)
+      .run(caller, callee, input, call_value);
   }
+
+  // NOTE: due to a bug the _addr and gaslimit parameters are switched in the
+  // do_call method when comparing to the actual EVM opcode parameter ordering
+  // on the evm stack... well ¯\_(ツ)_/¯
+  uint256_t SpecializedProcessor::do_call(
+    const Opcode op,
+    const uint256_t _addr,
+    const uint256_t gaslimit,
+    const uint256_t value,
+    const uint256_t offIn,
+    const uint256_t sizeIn,
+    const uint256_t offOut,
+    const uint256_t sizeOut)
+  {
+    //#define REENTRANCY_DEBUG_PRINTS 1
+
+    if (ctxt->stop_exec_now)
+    {
+      // avoid doing calls when the flag is set to stop immediately.
+      return 0;
+    }
+
+    if (get_call_depth() >= Consts::MAX_CALL_DEPTH)
+    {
+      ctxt->stop_exec_now = true;
+      ctxt->error = std::make_unique<Exception>(
+        ET::callStackExhausted,
+        "Callstack exhausted! (attempt to call with callstack == " +
+          to_string(Consts::MAX_CALL_DEPTH) + ")");
+      ctxt->return_value = 0;
+      ctxt->return_data = {};
+      return 0;
+    }
+
+    // when a call happens, we reset the previously stored returndata/value. We
+    // set them to sane defaults (i.e., failure code and no returndata).
+    ctxt->return_value = 0;
+    ctxt->return_data.clear();
+
+    const auto addr = to_addr(_addr);
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+#  define PRINT_CALLSTACK() \
+    { \
+      std::cerr << "\t[ call stack: ]" << std::endl; \
+      for (size_t i = 0; i < ctxts->size(); i++) \
+      { \
+        std::cerr << "\t [" << i << "] => " \
+                  << eevm::to_hex_string((*ctxts)[i]->acc.get_address()) \
+                  << " [specialized " \
+                  << ((*ctxts)[i]->acc.get_specialized_processor() != nullptr) \
+                  << "; code size " << (*ctxts)[i]->prog.code->size() \
+                  << "; static " << (*ctxts)[i]->static_flag << "]" \
+                  << std::endl; \
+      } \
+    }
+    std::cerr << "[CALL HANDLER] " << eevm::Disassembler::getOp(op) << " ("
+              << "gaslimit: " << eevm::to_hex_string(gaslimit)
+              << ", value: " << eevm::to_hex_string(value)
+              << ", addr: " << eevm::to_hex_string(addr)
+              << ", calldepth: " << ctxts->size() << ")" << std::endl;
+    PRINT_CALLSTACK();
+#endif
+
+    if (value != 0 && ctxt->static_flag && op != Opcode::CALLCODE)
+    {
+      ctxt->stop_exec_now = true;
+      ctxt->error = std::make_unique<Exception>(
+        ET::staticViolation, "Call with callvalue > 0 during STATICCALL.");
+      return 0;
+    }
+
+    if (addr >= 1 && addr <= PRECOMPILES_LAST_ADDR)
+    {
+      // identity precompile - no reason not to do it like that, no?
+      if (addr == 4) [[unlikely]]
+      {
+        prepare_mem_access(
+          static_cast<uint64_t>(offIn), static_cast<uint64_t>(sizeIn));
+        auto input = copy_from_mem(
+          static_cast<uint64_t>(offIn), static_cast<uint64_t>(sizeIn));
+        ctxt->return_data = input;
+        ctxt->return_value = 1;
+        // we handle the call return value according to the cur_ret mock values.
+        copy_mem_raw(
+          static_cast<uint64_t>(offOut),
+          0,
+          static_cast<uint64_t>(sizeOut),
+          ctxt->mem,
+          input);
+        return 1;
+      }
+
+#ifdef ENABLE_FUZZING
+      if (!eevm::fuzz::mock_calls_to_precompiles) [[likely]]
+      {
+        throw Exception(
+          ET::notImplemented,
+          "Precompiled contracts/native extensions are not implemented.");
+      }
+#else
+      // TODO: implement native extensions
+      throw Exception(
+        ET::notImplemented,
+        "Precompiled contracts/native extensions are not implemented.");
+#endif
+    }
+
+    auto r = check_on_call(addr, value, op);
+    if (r != 1)
+    {
+      return r;
+    }
+
+    // get the accountstate for the given address, creates a new account if it
+    // didn't exist before.
+    decltype(auto) callee = gs->get(addr);
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+    std::cerr << "[CALL HANDLER] "
+              << "attemtping transfer of " << value << " wei from address "
+              << to_hex_string(ctxt->acc.get_address()) << " to address "
+              << to_hex_string(addr)
+              << " from current call depth = " << ctxts->size()
+              << "; gaslimit = " << to_hex_string(gaslimit)
+              << "; into specialized = "
+              << (gs->get(_addr).acc.get_specialized_processor() != nullptr)
+              << std::endl;
+
+    PRINT_CALLSTACK()
+
+#endif
+
+    // if the callee has no code and is not mocked, we simply succeed!
+    if (callee.acc.get_code_ref()->empty() && (!callee.acc.is_mocked()))
+    {
+#ifdef REENTRANCY_DEBUG_PRINTS
+      std::cerr << "[CALL HANDLER] call to EOA - returning 1" << std::endl;
+#endif
+      // transfer the ether to the callee
+      if (ctxt->acc.pay_to_noexcept(callee.acc, value))
+      {
+        return 1;
+      }
+      else
+      {
+        ctxt->stop_exec_now = true;
+        ctxt->error = std::make_unique<Exception>(
+          Exception::Type::outOfFunds,
+          "Insufficient funds to pay " + to_hex_string(value) +
+            " during call attempt.");
+        return 0;
+      }
+    }
+
+    // call is mocked if no specialized processor is found for the account or if
+    // it is somehow overridden.
+    if (callee.acc.is_mocked())
+    {
+      // in Ethereum there is this particularity that even if there is no code,
+      // the whole thing could be run as part of a constructor call. Then there
+      // is no code in the blockchain, but the account still executes code.
+      // However, callbacks simply treat the contract as an account without
+      // code, so there are no reentrant executions. In typical blockchain state
+      // configuration this should not happen, but in case it does we print a
+      // warning, s.t., this behavior doesn't go unnoticed.
+#ifdef REENTRANCY_DEBUG_PRINTS
+      if (callee.acc.get_code_ref()->empty())
+      {
+        std::cerr << "[CALL HANDLER] potentially executing impossible callback."
+                  << std::endl;
+      }
+#endif
+
+      if (fuzzcase_parser == nullptr)
+      {
+        throw Exception(
+          ET::notImplemented,
+          "Specialized Executor cannot call mocked contracts (outside of "
+          "Fuzzing)!");
+      }
+
+      auto cur_tx = fuzzcase_parser->getCurrentTx();
+
+      if (!cur_tx->hasReturns())
+      {
+        // we do not have another "return data" provided by the fuzzer. So we
+        // can't really mock out the call. Instead we pretend the call fails.
+#ifdef REENTRANCY_DEBUG_PRINTS
+        std::cerr << "[CALL HANDLER] return now - no return mocks" << std::endl;
+        PRINT_CALLSTACK();
+#endif
+        return 0;
+      }
+      auto cur_ret = cur_tx->getNextReturn();
+      if (cur_ret == nullptr)
+      {
+#ifdef REENTRANCY_DEBUG_PRINTS
+        std::cerr
+          << "[CALL HANDLER] return now - no remaining data for return mocks"
+          << std::endl;
+        PRINT_CALLSTACK();
+#endif
+        return 0;
+      }
+
+      if (op != Opcode::DELEGATECALL && op != Opcode::STATICCALL && value != 0)
+      {
+        // all other calls can transfer value, no?
+        // ctxt->acc.pay_to(callee.acc, value);
+        const bool r = ctxt->acc.pay_to_noexcept(callee.acc, value);
+        if (!r)
+        {
+          ctxt->stop_exec_now = true;
+          ctxt->error = std::make_unique<Exception>(
+            Exception::Type::outOfFunds,
+            "Insufficient funds to pay " + to_hex_string(value) +
+              " during reentrant call attempt.");
+          return 0;
+        }
+      }
+
+      // these are saved
+      AccountState& caller_account_state = ctxt->as;
+      auto current_addr = ctxt->acc.get_address();
+      auto current_code = ctxt->acc.get_code_ref();
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+      std::cerr << "[CALL HANDLER] "
+                << "call to contract with mock return data available!"
+                << std::endl
+                << "current call depth = " << ctxts->size() << std::endl;
+#endif
+
+      // we return data on CALL and STATICCALL - we do not consider other call
+      // instructions, for mocking return values, as DELEGATECALL or CALLCODE
+      // can do much more by accessing and modifying the storage state of the
+      // caller.
+      if (op == Opcode::CALL || op == Opcode::STATICCALL)
+      {
+#ifdef REENTRANCY_DEBUG_PRINTS
+        std::cerr << "[CALL HANDLER] "
+                  << "call/staticcall with reenter: "
+                  << (static_cast<uint64_t>(cur_ret->header.reenter))
+                  << " gaslimit: " << to_hex_string(gaslimit) << std::endl;
+#endif
+        // TODO: we might want to check whether we have enough gas for
+        // actually doing a reentrant call (i.e., solidity's .call() vs.
+        // .transfer()) and probably we need to check whether we can actually
+        // perform multiple re-entrant calls?
+        //
+        // OK. So the whole gas stipend thingy is quite complex. However, the
+        // footnote here:
+        // https://consensys.net/diligence/blog/2019/09/stop-using-soliditys-transfer-now/
+        // sheds some light on how it is done:
+        //
+        // Solidity’s transfer() needs to ensure that there is always exactly
+        // 2300 gas passed to the callee.
+        //
+        // 2300 is the "gas stipend";
+        // if 0 wei are transferred
+        //    Solidity adds the gas stipend to the explicit gas parameter
+        // if more than 0 wei are transferred
+        //    The EVM implicitly adds the gas stipend to the amount of gas
+        //
+        // In order to avoid false alarms we need to handle this accordingly
+        // here. Since eEVM does not implement gas tracking, we only use very
+        // basic check on the gas to detect the use of solidity's transfer().
+        //
+        // In reality we would need to do more sophisticated gas tracking and
+        // computation. We would need to check whether the provided gas is high
+        // enough to perform all the necessary EVM steps for the reentrant call.
+        // However, this seems to be a bit of a hassle and not doing it could
+        // actually reveal some interesting cases.
+
+        bool gas_allows_reentrancy = true;
+        if (value == 0)
+        {
+          gas_allows_reentrancy = (gaslimit > CALL_GAS_STIPEND);
+        }
+        else
+        {
+          // gas_allows_reentrancy = ((gaslimit + CALL_GAS_STIPEND) >
+          // CALL_GAS_STIPEND);
+          gas_allows_reentrancy = gaslimit > 0;
+        }
+
+        // TODO: I think that it does not make sense to perform
+        // reentrant calls while the STATIC flag of the EVM is set. We cannot do
+        // any modifications anyway. In theory we can reenter, but we cannot
+        // cause inconsistent state or anything, because there are no state
+        // updates. For now, let's still allow this.
+        if (
+          /*op == Opcode::CALL && !ctxt->static_flag && */
+          cur_ret->header.reenter > 0 && cur_ret->header.value > 0 &&
+          gas_allows_reentrancy && addr > PRECOMPILES_LAST_ADDR && addr > 0)
+        {
+          // first we push the a new context for the normal call
+          {
+            // empty handlers? not sure whether we need them.
+            auto rh = [](const vector<uint8_t>& output) {};
+            auto hh = []() {};
+            auto he = [](const Exception&) {};
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+            std::cerr << "[CALL HANDLER] "
+                      << "pushing mock context at call depth = "
+                      << ctxts->size() << " address = "
+                      << eevm::to_hex_string(callee.acc.get_address())
+                      << std::endl;
+#endif
+            push_context(
+              current_addr,
+              callee,
+              {}, /* the input is ignored anyway, so we pass empty */
+              callee.acc.get_code_ref(),
+              value,
+              rh,
+              hh,
+              he,
+              (ctxt->static_flag || op == Opcode::STATICCALL));
+            // ctxt member now points to a new context!!!
+          }
+
+          // so now we have pushed the context of the external call. However,
+          // we will not really perform the call. Instead we will ask the
+          // fuzzer (1) whether we should reenter the contract under test and
+          // (2) mock out the return value of the call.
+
+          size_t reenter_counter = cur_ret->header.reenter;
+          fuzz::FuzzTransaction* next_tx = nullptr;
+          if (reenter_counter > 0)
+          {
+            next_tx = fuzzcase_parser->getNextTx();
+          }
+
+          while (reenter_counter != 0 && next_tx != nullptr)
+          {
+#ifdef REENTRANCY_DEBUG_PRINTS
+            std::cerr << "[CALL HANDLER] "
+                      << "trying reentering! call depth = " << ctxts->size()
+                      << " current address "
+                      << to_hex_string(ctxt->acc.get_address()) << std::endl;
+            PRINT_CALLSTACK();
+#endif
+
+            size_t receivers_bound = eevm::fuzz::tx_receivers.size();
+            size_t tx_to_idx = 0;
+            eevm::Address tx_to = eevm::fuzz::tx_receiver;
+            if (receivers_bound > 1)
+            {
+              tx_to_idx = (next_tx->header.receiver_select % receivers_bound);
+              tx_to = eevm::fuzz::tx_receivers[tx_to_idx];
+            }
+            auto to_account_state = gs->get(tx_to);
+
+            SpecializedProcessor* spp = static_cast<SpecializedProcessor*>(
+              to_account_state.acc.get_specialized_processor());
+
+            if (spp == nullptr)
+            {
+              std::cerr
+                << "[WARNING] attempting to call contract without specialized "
+                   "constructor; likely a configuration error!"
+                << std::endl;
+
+              ctxt->stop_exec_now = true;
+              ctxt->error = std::make_unique<Exception>(
+                ET::notImplemented,
+                "Attempt to call contract without specialized executor");
+              break;
+            }
+
+            auto t_sp = spp->duplicate();
+
+            bool exception_occured = false;
+            auto rh = [](const vector<uint8_t>& output) {};
+            auto hh = []() {};
+            auto he = [&exception_occured](const Exception&) {
+              exception_occured = true;
+            };
+
+            eevm::Code re_input = next_tx->data;
+            auto re_call_value = next_tx->getCallValue();
+            auto re_sender = next_tx->getSender();
+            auto re_sender_acc = gs->get(re_sender);
+            if (!re_sender_acc.acc.pay_to_noexcept(
+                  caller_account_state.acc, re_call_value))
+            {
+              // not enough funds to perform the reentrant call.
+              ctxt->stop_exec_now = true;
+              ctxt->error = std::make_unique<Exception>(
+                Exception::Type::outOfFunds,
+                "Insufficient funds to pay " + to_hex_string(re_call_value) +
+                  " during reentrant call attempt.");
+              break;
+            }
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+            std::cerr << "[CALL HANDLER] "
+                      << "pushing target contract context call depth = "
+                      << ctxts->size() << " address = "
+                      << eevm::to_hex_string(to_account_state.acc.get_address())
+                      << std::endl;
+#endif
+            push_context(
+              re_sender,
+              to_account_state,
+              move(re_input),
+              to_account_state.acc.get_code_ref(),
+              re_call_value,
+              rh,
+              hh,
+              he,
+              (ctxt->static_flag || op == Opcode::STATICCALL));
+            // ctxt member now points to a new context!!!
+
+            std::shared_ptr<eevm::SimpleGlobalState> snap_gs =
+              make_shared<eevm::SimpleGlobalState>(*gs);
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+            std::cerr << "[CALL HANDLER] "
+                      << "executing specialized executor at call depth = "
+                      << ctxts->size() << " current address "
+                      << to_hex_string(ctxt->acc.get_address())
+                      << " current caller " << to_hex_string(ctxt->caller)
+                      << std::endl;
+            PRINT_CALLSTACK();
+#endif
+
+            t_sp->prepareNested(gs, tx, tr, ctxts);
+            t_sp->setFuzzCaseParser(fuzzcase_parser);
+
+            try
+            {
+              // run the code
+              t_sp->dispatch();
+
+              // t_sp->unprepare();
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+              std::cerr << "[CALL HANDLER] dispatch done retval: "
+                        << ctxt->return_value << std::endl;
+              PRINT_CALLSTACK();
+#endif
+            }
+            catch (eevm::Exception& ex)
+            {
+              // t_sp->unprepare();
+#ifdef REENTRANCY_DEBUG_PRINTS
+              std::cerr << "[CALL HANDLER] "
+                        << "exception during re-entrant call: \"" << ex.what()
+                        << "\" at call depth " << ctxts->size()
+                        << " with last pc " << ctxt->get_pc() << std::endl;
+              PRINT_CALLSTACK()
+#endif
+              pop_context();
+              pop_context();
+
+              if (snap_gs)
+              {
+                gs.swap(snap_gs);
+                /*snap_gs.reset();*/
+                snap_gs = nullptr;
+              }
+
+              throw;
+            }
+
+            if (ctxt && ctxt->stop_exec_now && ctxt->error)
+            {
+              auto err = std::move(ctxt->error);
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+              std::cerr << "[CALL HANDLER] recoverable error detected "
+                        << err->what() << " - popping 2 context" << std::endl;
+              PRINT_CALLSTACK();
+#endif
+              pop_context();
+              pop_context();
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+              std::cerr << "[CALL HANDLER] remaining call stack:" << std::endl;
+              PRINT_CALLSTACK();
+#endif
+              // restore state from snapshot
+              if (snap_gs)
+              {
+                gs.swap(snap_gs);
+                /*snap_gs.reset();*/
+                snap_gs = nullptr;
+              }
+
+              if (ctxt)
+              {
+                ctxt->error = std::move(err);
+                ctxt->stop_exec_now = true;
+              }
+              ctxt->return_value = 0;
+              return 0;
+            }
+
+            if (exception_occured)
+            {
+              // TODO: I don't think this should ever happen. The specialized
+              // contracts should always set ctxt->error on exceptions (or at
+              // least throw the exception).
+#ifdef REENTRANCY_DEBUG_PRINTS
+              std::cerr << "[CALL HANDLER] noticed unknown exception during "
+                           "execution; restoring snapshot: "
+                           "call depth = "
+                        << ctxts->size() << " address = "
+                        << eevm::to_hex_string(ctxt->acc.get_address())
+                        << std::endl;
+#endif
+              // restore state from snapshot
+              if (snap_gs)
+              {
+                gs.swap(snap_gs);
+                /*snap_gs.reset();*/
+                snap_gs = nullptr;
+              }
+            }
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+            std::cerr << "[CALL HANDLER] popping target contract context at "
+                         "call depth = "
+                      << ctxts->size() << " address = "
+                      << eevm::to_hex_string(ctxt->acc.get_address())
+                      << std::endl;
+            PRINT_CALLSTACK();
+#endif
+
+            pop_context();
+
+            // we need to remove all reentrant transactions, s.t., the next call
+            // to getCurrentTx() again returns the very same TX.
+            fuzzcase_parser->popTransaction();
+
+            // next iteration
+            --reenter_counter;
+            // only get the next TX if we are also going to execute it.
+            // if reenter_counter == 0 then the next loop iteration will not
+            // happen and we do not need the next transaction
+            if (reenter_counter != 0)
+            {
+              next_tx = fuzzcase_parser->getNextTx();
+            }
+            else
+            {
+              next_tx = nullptr;
+              break;
+            }
+          }
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+          std::cerr
+            << "[CALL HANDLER] popping mock-callee context call depth = "
+            << ctxts->size()
+            << " address = " << eevm::to_hex_string(ctxt->acc.get_address())
+            << std::endl;
+
+          PRINT_CALLSTACK();
+#endif
+          // pop the fake caller context.
+          pop_context();
+        }
+        else
+        {
+#ifdef REENTRANCY_DEBUG_PRINTS
+          std::cerr << "[CALL HANDLER] **not** reentering at call depth = "
+                    << ctxts->size() << std::endl;
+#endif
+        }
+
+        if (ctxt == nullptr)
+        {
+          throw std::runtime_error("No context available after return!");
+        }
+
+        // Normally this should always be true, and it seems to be. But because
+        // I do not really trust this code a lot, I put this check here to
+        // verify this condition.
+        if (ctxt->acc.get_address() != current_addr)
+        {
+          std::cerr << "[INTERNAL ERROR] Invalid address after call/return "
+                       "mock! current context address: "
+                    << eevm::to_hex_string(ctxt->acc.get_address())
+                    << " (expected " << eevm::to_hex_string(current_addr) << ")"
+                    << std::endl;
+#ifdef REENTRANCY_DEBUG_PRINTS
+          PRINT_CALLSTACK();
+#endif
+          throw std::runtime_error("Invalid address after call/return mock!");
+        }
+
+        ctxt->return_data = cur_ret->data;
+        ctxt->return_value = cur_ret->header.value;
+        // we handle the call return value according to the cur_ret mock values.
+        copy_mem_raw(
+          static_cast<uint64_t>(offOut),
+          0, /* src offset, i.e., source is cur_ret->data */
+          static_cast<uint64_t>(sizeOut),
+          ctxt->mem,
+          cur_ret->data);
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+        std::cerr << "[CALL HANDLER] returned from call with value = "
+                  << static_cast<uint64_t>(cur_ret->header.value)
+                  << " at call depth = " << ctxts->size() << std::endl;
+        PRINT_CALLSTACK();
+#endif
+
+        return cur_ret->header.value;
+      }
+
+      ctxt->return_value = 0;
+      ctxt->return_data.clear();
+      return 0;
+    }
+    else if (callee.acc.get_specialized_processor() != nullptr)
+    {
+      // throws exception in case of not enough funds
+      if (op != Opcode::DELEGATECALL && op != Opcode::STATICCALL && value != 0)
+      {
+        // all other calls can transfer value, no?
+        if (!ctxt->acc.pay_to_noexcept(callee.acc, value))
+        {
+          ctxt->stop_exec_now = true;
+          ctxt->error = std::make_unique<Exception>(
+            Exception::Type::outOfFunds,
+            "Insufficient funds to pay " + to_hex_string(value) +
+              " during reentrant call attempt.");
+          ctxt->return_value = 0;
+          ctxt->return_data.clear();
+          return 0;
+        }
+      }
+
+      // a specialized processor was found, so the call is executed
+      prepare_mem_access(
+        static_cast<uint64_t>(offIn), static_cast<uint64_t>(sizeIn));
+      auto input = copy_from_mem(
+        static_cast<uint64_t>(offIn), static_cast<uint64_t>(sizeIn));
+
+      auto parentContext = ctxt;
+      eevm::ExecResult result;
+
+      auto rh =
+        [offOut, sizeOut, parentContext](const vector<uint8_t>& output) {
+          parentContext->return_value = 1;
+          parentContext->return_data = output;
+          copy_mem_raw(
+            static_cast<uint64_t>(offOut),
+            0,
+            static_cast<uint64_t>(sizeOut),
+            parentContext->mem,
+            output);
+        };
+      auto hh = [parentContext]() { parentContext->return_value = 1; };
+      auto eh = [parentContext](const Exception&) {
+        parentContext->return_value = 0;
+      };
+
+      switch (op)
+      {
+        case Opcode::STATICCALL:
+          push_context(
+            ctxt->acc.get_address(),
+            callee,
+            move(input),
+            callee.acc.get_code_ref(),
+            0,
+            rh,
+            hh,
+            eh,
+            true /* set static flag */);
+          break;
+        case Opcode::CALL:
+          push_context(
+            ctxt->acc.get_address(),
+            callee,
+            move(input),
+            callee.acc.get_code_ref(),
+            value,
+            rh,
+            hh,
+            eh,
+            ctxt->static_flag);
+          break;
+
+        case Opcode::CALLCODE:
+          push_context(
+            ctxt->acc.get_address(),
+            ctxt->as,
+            move(input),
+            callee.acc.get_code_ref(),
+            value,
+            rh,
+            hh,
+            eh,
+            ctxt->static_flag);
+          break;
+
+        case Opcode::DELEGATECALL:
+          push_context(
+            ctxt->caller,
+            ctxt->as,
+            move(input),
+            callee.acc.get_code_ref(),
+            ctxt->call_value,
+            rh,
+            hh,
+            eh,
+            ctxt->static_flag);
+          break;
+
+        default:
+          throw UnexpectedState("Unknown call opcode.");
+      }
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+      std::cerr << "[CALL HANDLER] "
+                << "performing call with native handler (at call depth: "
+                << ctxts->size() << " opcode: " << eevm::Disassembler::getOp(op)
+                << ")" << std::endl;
+      PRINT_CALLSTACK();
+#endif
+
+      std::shared_ptr<eevm::SimpleGlobalState> snap_gs =
+        make_shared<eevm::SimpleGlobalState>(*gs);
+
+      // run with specialized processor
+      auto spp = static_cast<SpecializedProcessor*>(
+        callee.acc.get_specialized_processor());
+      auto t_sp = spp->duplicate();
+      t_sp->prepareNested(gs, tx, tr, ctxts);
+      t_sp->setFuzzCaseParser(fuzzcase_parser);
+      try
+      {
+        // run the target contract
+        t_sp->dispatch();
+
+        // t_sp->unprepare();
+      }
+      catch (eevm::Exception& e)
+      {
+        t_sp->unprepare();
+        pop_context();
+
+        // restore state from snapshot
+        if (snap_gs)
+        {
+          gs.swap(snap_gs);
+          /*snap_gs.reset();*/
+          snap_gs = nullptr;
+        }
+
+        // refers to parent context already
+        ctxt->return_value = 0;
+        // ctxt->return_data.clear();
+        throw;
+        return 0;
+      }
+
+      if (ctxt->stop_exec_now && ctxt->error)
+      {
+        auto err = std::move(ctxt->error);
+        pop_context();
+        if (ctxt)
+        {
+          ctxt->error = std::move(err);
+          ctxt->stop_exec_now = true;
+        }
+
+        // restore state from snapshot
+        if (snap_gs)
+        {
+          gs.swap(snap_gs);
+          /*snap_gs.reset();*/
+          snap_gs = nullptr;
+        }
+        ctxt->return_value = 0;
+        // ctxt->return_data.clear();
+        return 0;
+      }
+
+      pop_context();
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+      std::cerr << "[CALL HANDLER] "
+                << "returned from execution with native handler "
+                << "back at current call depth = " << ctxts->size()
+                << " return value = " << ctxt->return_value << std::endl;
+      PRINT_CALLSTACK();
+#endif
+
+      ctxt->return_value = 1;
+      // ctxt->return_data.clear();
+      return 1;
+    }
+
+#ifdef REENTRANCY_DEBUG_PRINTS
+    std::cerr << "[CALL HANDLER] not mocked, no specialized executor, not an "
+                 "EOA - return 0"
+              << std::endl;
+#endif
+
+    ctxt->return_value = 0;
+    return 0;
+  }
+
 } // namespace eevm

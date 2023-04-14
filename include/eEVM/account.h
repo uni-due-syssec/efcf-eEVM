@@ -26,12 +26,53 @@ namespace eevm
 
     virtual Address get_address() const = 0;
 
+    virtual void* get_specialized_processor() const = 0;
+
     virtual uint256_t get_balance() const = 0;
+
+    virtual void set_specialized_processor(void* specialized_processor) = 0;
+
     virtual void set_balance(const uint256_t& b) = 0;
+
+    virtual bool pay_to_noexcept(Account& other, const uint256_t& amount)
+    {
+      const uint256_t this_balance = get_balance();
+
+      // not enough funds in this->get_balance();
+      if (amount > this_balance)
+      {
+        return false;
+      }
+
+      // transfer of value to ourselves - no change. early return true;
+      if (other.get_address() == get_address()) {
+        return true;
+      }
+
+      const uint256_t other_balance = other.get_balance();
+      const uint256_t proposed_balance = other_balance + amount;
+      // IO check
+      if (proposed_balance < other_balance)
+      {
+        return false;
+      }
+
+      // update balances
+      set_balance(this_balance - amount);
+      other.set_balance(proposed_balance);
+
+      // all good
+      return true;
+    }
 
     virtual void pay_to(Account& other, const uint256_t& amount)
     {
+      if (other.get_address() == get_address()) {
+        return;
+      }
+
       const auto this_balance = get_balance();
+
       if (amount > this_balance)
       {
         throw Exception(
@@ -61,12 +102,16 @@ namespace eevm
     virtual Nonce get_nonce() const = 0;
     virtual void increment_nonce() = 0;
 
-    virtual Code get_code() const = 0;
+    virtual std::shared_ptr<Code> get_code_ref() = 0;
+    virtual Code& get_code() const = 0;
     virtual void set_code(Code&& code) = 0;
 
     virtual bool has_code()
     {
       return !get_code().empty();
     }
+
+    virtual bool is_mocked() = 0;
+    virtual void set_mocked(bool) = 0;
   };
 } // namespace evm

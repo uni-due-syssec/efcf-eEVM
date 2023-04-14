@@ -34,6 +34,8 @@ namespace eevm
    */
   struct GlobalState
   {
+    virtual ~GlobalState() = default;
+    
     virtual void remove(const Address& addr) = 0;
 
     /**
@@ -41,10 +43,12 @@ namespace eevm
      * exists
      */
     virtual AccountState get(const Address& addr) = 0;
+    virtual bool exists(const Address& addr) = 0;
     virtual AccountState create(
       const Address& addr, const uint256_t& balance, const Code& code) = 0;
 
-    virtual const Block& get_current_block() = 0;
-    virtual uint256_t get_block_hash(uint8_t offset) = 0;
+    virtual Block& get_current_block() = 0;
+    virtual void set_current_block(Block&) = 0;
+    virtual uint256_t get_block_hash(uint64_t offset) = 0;
   };
 } // namespace eevm

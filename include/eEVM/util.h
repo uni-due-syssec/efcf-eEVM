@@ -150,6 +150,11 @@ namespace eevm
   {
     return intx::from_string<uint256_t>(s);
   }
+  
+  constexpr uint256_t const_uint256(const std::string_view s)
+  {
+    return intx::from_string<uint256_t>(s.data());
+  }
 
   inline std::string to_checksum_address(const Address& a)
   {

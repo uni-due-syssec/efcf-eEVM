@@ -27,6 +27,16 @@ namespace eevm
     return val;
   }
 
+  void Stack::set(const uint64_t n, uint256_t val)
+  {
+    if (n >= size())
+      throw Exception(
+        ET::outOfBounds,
+        "set out of range (" + to_string(n) + " >= " + to_string(size()) + ")");
+
+    st[n] = val;
+  }
+
   uint64_t Stack::pop64()
   {
     const auto val = pop();
@@ -36,6 +46,20 @@ namespace eevm
         "Value on stack (" + to_hex_string(val) + ") is larger than 2^64");
 
     return static_cast<uint64_t>(val);
+  }
+
+  void Stack::pop_drop_n(const uint64_t n)
+  {
+    if (n > size()) 
+      throw Exception(
+        ET::outOfBounds,
+        "Stack Bounds Exceeded: Cannot pop_drop_n(" + to_string(n) +
+          ") > " + to_string(size()) + ")");
+    if (n == size()) {
+      st.clear();
+    } else {
+      st.erase(st.begin(), st.begin() + n);
+    }
   }
 
   void Stack::push(const uint256_t& val)
@@ -70,6 +94,19 @@ namespace eevm
           ")");
 
     std::swap(st[0], st[i]);
+  }
+
+  uint256_t Stack::peek(const uint64_t i)
+  {
+    if (i >= size())
+    {
+      throw Exception(
+        ET::outOfBounds,
+        "peek out of range (" + to_string(i) + " >= " + to_string(size()) +
+          ")");
+    }
+
+    return st[i];
   }
 
   void Stack::dup(uint64_t a)

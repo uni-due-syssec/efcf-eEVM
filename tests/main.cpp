@@ -340,18 +340,18 @@ TEST_CASE("vmExecution" * doctest::test_suite("vm"))
   // the simplest possible test of the API, independent of json parsing/test
   // formats
 
-  SimpleGlobalState gs;
+  auto gs = std::make_shared<SimpleGlobalState>();
   NullLogHandler ignore;
   Address from(0x100);
   Address to(0x101);
-  Transaction tx(from, ignore);
+  auto tx = std::make_shared<Transaction>(from, ignore);
 
   Processor p(gs);
 
   SUBCASE("nop")
   {
     Trace tr;
-    const auto e = p.run(tx, from, gs.get(to), {}, 0, &tr);
+    const auto e = p.run(tx, from, gs->get(to), {}, 0, &tr);
 
     CHECK(e.er == ExitReason::halted);
     CHECK(e.output.empty());
@@ -381,9 +381,9 @@ TEST_CASE("vmExecution" * doctest::test_suite("vm"))
                                        mdest,
                                        Opcode::RETURN};
 
-    gs.create(to, {}, code);
+    gs->create(to, {}, code);
 
-    const auto e = p.run(tx, from, gs.get(to), {}, 0, &tr);
+    const auto e = p.run(tx, from, gs->get(to), {}, 0, &tr);
 
     CHECK(e.er == ExitReason::returned);
     CHECK(e.output.size() == rsize);
